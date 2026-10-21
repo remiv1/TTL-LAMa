@@ -1,0 +1,58 @@
+# Contributing to TTL-LAMa
+
+English | [Français](./docs/CONTRIBUTING.fr.md)
+
+Thank you for your interest in **TTL-LAMa** 🦙⏱️.
+
+This guide is intentionally short. The project overview is in `README.md`; its architecture and principles are described in `docs/architecture.md` and `docs/project.md`.
+
+## Before Contributing
+
+- Check whether an existing issue or pull request already covers the topic.
+- For a major feature or architectural change, open an issue first to discuss it.
+- For a straightforward fix, you may open a pull request directly.
+
+## Pull Requests
+
+A pull request should ideally:
+
+- focus on one specific topic;
+- briefly explain the problem and proposed solution;
+- include or update tests where relevant;
+- update the documentation when behavior or configuration changes;
+- explicitly identify any impact on security, privileges, networking, authentication, or compatibility.
+
+## Code Quality
+
+Contributions should favor:
+
+- simple, readable code;
+- clearly separated responsibilities;
+- the principle of least privilege;
+- keeping secrets and private keys out of code and logs;
+- adding dependencies only when justified.
+
+Avoid introducing abstractions or complexity that do not address a concrete need.
+
+## Commits
+
+Short, descriptive commit messages are recommended, for example:
+
+```text
+feat: add OIDC authentication
+fix: revoke expired leases after restart
+docs: update WireGuard configuration
+test: cover device revocation
+```
+
+## Security
+
+TTL-LAMa manages network access. Changes involving authentication, authorization, secrets, keys, system privileges, or access backends therefore require particular care.
+
+Do not publish exploitable vulnerability details in a public issue. The vulnerability reporting process will be described in `SECURITY.md`.
+
+## License
+
+By submitting a contribution to TTL-LAMa, you agree that it may be distributed under the project's license.
+
+Thank you for contributing to **TTL-LAMa** 🦙⏱️.
