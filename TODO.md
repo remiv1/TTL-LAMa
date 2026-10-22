@@ -8,16 +8,25 @@ Chaque grande ligne regroupe un chantier, chaque sous-tâche un résultat à obt
 
 ### 0.1 Établir le point de départ
 
-- [ ] Lancer la suite de tests existante et noter les éventuels échecs initiaux.
-- [ ] Vérifier les fonctionnalités présentes dans `src/auth/` et leurs tests, notamment les modes interne et OIDC.
-- [ ] Recenser les implémentations présentes pour la configuration, la persistance, les profils, les appareils, les baux, le provisionnement et l’audit.
-- [ ] Pour chaque sous-tâche ci-dessous, noter si elle est absente, partielle ou déjà réalisée, puis ajuster la liste sans supprimer les travaux utiles.
+- [x] Lancer la suite de tests existante et noter les éventuels échecs initiaux.
+- [x] Vérifier les fonctionnalités présentes dans `src/auth/` et leurs tests, notamment les modes interne et OIDC.
+- [x] Recenser les implémentations présentes pour la configuration, la persistance, les profils, les appareils, les baux, le provisionnement et l’audit.
+- [x] Pour chaque sous-tâche ci-dessous, noter si elle est absente, partielle ou déjà réalisée, puis ajuster la liste sans supprimer les travaux utiles.
 
 ## 1. Finaliser la conception
 
 ### 1.1 Définir le modèle de menace
 
 - [ ] Lister les actifs à protéger : identifiants, sessions, clés publiques, configuration, baux et accès réseau.
+  - [x] Transformer les identifiants utilisateurs en UUID.
+  - [ ] Données sensibles identifiées :
+    - identifiant & mot de passe
+    - clés publiques
+    - liens vers les fournisseurs d'identité
+    - sessions
+    - appartenances à des groupes
+  - [ ] Créer une table de conservation des clés publiques et/ou privées.
+  - [ ] Créer une table pour la conservation des baux.
 - [ ] Décrire les acteurs, les frontières de confiance et les interfaces exposées.
 - [ ] Recenser les menaces liées à l’authentification, à l’autorisation, aux secrets, au conteneur et au backend réseau.
 - [ ] Associer à chaque menace une mesure de réduction et un risque résiduel accepté.

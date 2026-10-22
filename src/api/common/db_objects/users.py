@@ -19,6 +19,7 @@ from __future__ import annotations
 
 from typing import Any
 from datetime import datetime, timezone
+from uuid import uuid4, UUID
 
 from sqlalchemy import Integer, String, DateTime, Boolean, ForeignKey, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -65,10 +66,11 @@ class User(Base):
     __tablename__ = "users"
     __table_args__ = TABLE_ARGS
 
-    id: Mapped[int] = mapped_column(
-        Integer,
+    id: Mapped[UUID] = mapped_column(
+        String(36),
         primary_key=True,
-        autoincrement=True,
+        index=True,
+        default=lambda: str(uuid4()),
         comment=_USER_ID,
     )
     username: Mapped[str] = mapped_column(
@@ -215,7 +217,8 @@ class UserPreferences(Base):
         primary_key=True,
         comment="Unique key identifying the local identity",
     )
-    user_id: Mapped[int | None] = mapped_column(
+    user_id: Mapped[UUID | None] = mapped_column(
+        String(36),
         ForeignKey(
             foreign_key_target("users"),
             ondelete="CASCADE",
@@ -313,8 +316,8 @@ class UserGroup(Base):
         autoincrement=True,
         comment="Unique identifier of the user-group association",
     )
-    user_id: Mapped[int] = mapped_column(
-        Integer,
+    user_id: Mapped[UUID] = mapped_column(
+        String(36),
         ForeignKey(foreign_key_target("users")),
         comment=_USER_ID,
     )
@@ -365,8 +368,8 @@ class UserSession(Base):
         autoincrement=True,
         comment="Unique identifier of the user session",
     )
-    user_id: Mapped[int] = mapped_column(
-        Integer,
+    user_id: Mapped[UUID] = mapped_column(
+        String(36),
         ForeignKey(foreign_key_target("users")),
         nullable=False,
         comment=_USER_ID,
@@ -411,8 +414,8 @@ class UserLoginState(Base):
     __tablename__ = "user_login_states"
     __table_args__ = TABLE_ARGS
 
-    user_id: Mapped[int] = mapped_column(
-        Integer,
+    user_id: Mapped[UUID] = mapped_column(
+        String(36),
         ForeignKey(foreign_key_target("users")),
         primary_key=True,
     )
@@ -450,8 +453,8 @@ class UserIdentity(Base):
         TABLE_ARGS,
     )
 
-    user_id: Mapped[int] = mapped_column(
-        Integer,
+    user_id: Mapped[UUID] = mapped_column(
+        String(36),
         ForeignKey(foreign_key_target("users")),
         primary_key=True,
         comment=_USER_ID,
