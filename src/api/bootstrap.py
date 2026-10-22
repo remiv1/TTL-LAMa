@@ -2,6 +2,7 @@
 
 .. functions::
     - `create_app`: Create the Flask application and initialize its extensions.
+    - `get_sessions`: Return a new database scoped_session.
 
 .. module_author:: Rémi Verschuur <rverschuur@audit-io.fr>
 .. version:: 1.0.0
@@ -10,8 +11,9 @@ from __future__ import annotations
 
 import logging
 
-from flask import Flask, Response
+from flask import Flask, Response, current_app
 from flask_wtf.csrf import CSRFProtect
+from sqlalchemy.orm import Session
 
 from api.config import AccessProfiles, DatabaseConfig, DatabaseSettings, FlaskSettings
 from auth.manager import AuthManager
@@ -88,3 +90,11 @@ def create_app(
         database.session.remove()
 
     return app
+
+def get_sessions() -> Session:
+    """Return a new database session.
+
+    :returns: A SQLAlchemy session.
+    :rtype: Session
+    """
+    return current_app.extensions["database_config"].session()
