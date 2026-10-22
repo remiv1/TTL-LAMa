@@ -10,10 +10,8 @@ from __future__ import annotations
 
 import logging
 
-from flask import Flask, Response, jsonify
+from flask import Flask, Response
 from flask_wtf.csrf import CSRFProtect
-from sqlalchemy import text
-from sqlalchemy.exc import SQLAlchemyError
 
 from api.config import AccessProfiles, DatabaseConfig, DatabaseSettings, FlaskSettings
 from auth.manager import AuthManager
@@ -40,46 +38,24 @@ def create_app(
     database_settings = database_settings or DatabaseSettings()
 
     app = Flask(__name__)
-    app.config.update(
-        DEBUG=flask_settings.DEBUG,
-        SECRET_KEY=flask_settings.SECRET_KEY,
-        SESSION_COOKIE_NAME=flask_settings.SESSION_COOKIE_NAME,
-        SESSION_COOKIE_HTTPONLY=flask_settings.SESSION_COOKIE_HTTPONLY,
-        SESSION_COOKIE_SECURE=flask_settings.SESSION_COOKIE_SECURE,
-        SESSION_COOKIE_SAMESITE=flask_settings.SESSION_COOKIE_SAMESITE,
-        SESSION_COOKIE_PATH=flask_settings.SESSION_COOKIE_PATH,
-        MAX_CONTENT_LENGTH=flask_settings.MAX_CONTENT_LENGTH,
-        WTF_CSRF_ENABLED=True,
-        WTF_CSRF_CHECK_DEFAULT=True,
-        TESTING=flask_settings.FLASK_ENV.lower() == "testing",
-    )
+    app.config.from_mapping(flask_settings.model_dump())
 
     profiles = AccessProfiles.from_file(flask_settings.ACCESS_PROFILES_FILE)
     database = DatabaseConfig(database_settings)
     database.initialize()
     AuthManager.initialize_database(database.session, flask_settings)
     auth_manager = AuthManager(app, database.session, flask_settings)
+    if (
+        flask_settings.FLASK_ENV.lower() == "production"
+        and auth_manager.is_default_admin_password_in_use()
+    ):
+        LOGGER.warning("Le mot de passe initial de l'administrateur est encore utilisé")
     app.extensions["database_config"] = database
     app.extensions["auth_manager"] = auth_manager
     app.config["ACCESS_PROFILES"] = profiles.profiles
 
     CSRFProtect(app)
     app.register_blueprint(auth_bp)
-
-    @app.get("/health")
-    def health() -> tuple[Response, int]:
-        """Return service readiness based on database connectivity.
-
-        :returns: A JSON response and the corresponding HTTP status.
-        :rtype: tuple[Response, int]
-        """
-        try:
-            with database.engine.connect() as connection:
-                connection.execute(text("SELECT 1"))
-        except SQLAlchemyError:
-            LOGGER.exception("Database health check failed")
-            return jsonify(status="unavailable"), 503
-        return jsonify(status="ok"), 200
 
     @app.after_request
     def set_security_headers(response: Response) -> Response:

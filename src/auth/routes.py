@@ -6,6 +6,7 @@
     - `/auth/login`: Start OIDC or authenticate an internal user.
     - `/auth/callback`: Complete OIDC and create a TTL-LAMa session.
     - `/auth/logout`: Revoke the current session and delete its cookie.
+    - `/auth/security-status`: Retourner des indicateurs de sécurité non sensibles.
 
 .. module_author:: Rémi Verschuur <rverschuur@audit-io.fr>
 .. version:: 1.0.0
@@ -58,6 +59,20 @@ def current_user() -> Response | tuple[Response, int]:
     if user is None:
         return jsonify(error="Authentication required"), 401
     return jsonify(user=user.to_dict())
+
+
+@auth_bp.get("/security-status")
+@require_auth
+def security_status() -> Response:
+    """Expose non-sensitive security indicators to authenticated clients.
+
+    :returns: The default administrator password status.
+    :rtype: Response
+    """
+    manager: AuthManager = current_app.extensions["auth_manager"]
+    return jsonify(
+        default_admin_password_in_use=manager.is_default_admin_password_in_use()
+    )
 
 
 @auth_bp.route("/login", methods=["GET", "POST"])

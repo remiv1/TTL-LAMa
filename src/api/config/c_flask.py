@@ -60,6 +60,7 @@ class Settings(YamlSettingsBase):
     SESSION_COOKIE_SAMESITE: str = "Lax"
     SESSION_COOKIE_PATH: str = "/"
     MAX_CONTENT_LENGTH: int = _MAX_CONTENT_LENGTH
+    TESTING: bool = Field(default=False)
 
     @model_validator(mode="before")
     @classmethod

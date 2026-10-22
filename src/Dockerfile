@@ -19,7 +19,7 @@ COPY src/config/access-profiles.yml /etc/ttl-lama/access-profiles.yml
 FROM base AS test
 
 USER root
-COPY src/requirements-test.txt /opt/ttl-lama/requirements-test.txt
+COPY tests/requirements-test.txt /opt/ttl-lama/requirements-test.txt
 RUN pip install --no-cache-dir -r /opt/ttl-lama/requirements-test.txt
 COPY pytest.ini /opt/ttl-lama/pytest.ini
 COPY tests/ /opt/ttl-lama/tests/

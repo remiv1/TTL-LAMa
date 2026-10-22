@@ -27,14 +27,18 @@ mkdir -p secrets
 docker compose up --build -d
 ```
 
-Le modèle de configuration active l’authentification interne et attend les fichiers `secrets/flask_secret_key` et `secrets/admin_password`. Créez-les avec des valeurs fortes, lisibles par l’utilisateur non privilégié du conteneur. Les secrets ne doivent pas être écrits dans `.env`.
+Le modèle intégré active l’authentification interne en développement : `DEBUG` est activé, les connexions HTTP sont autorisées et les cookies ne sont pas marqués `Secure`. Le mot de passe initial du compte `admin` est `admin`. Pour une première initialisation en production, remplacez-le dans la configuration avant le démarrage. Cette valeur sert uniquement à créer le compte : changer la configuration ensuite ne modifie pas le mot de passe déjà stocké.
+
+Un secret Flask monté dans `secrets/flask_secret_key` est prioritaire. S’il est absent, l’entrée du conteneur génère une clé aléatoire dans `/data/flask_secret_key`, protégée par les permissions du propriétaire. Cette clé reste disponible grâce au volume `/data` après les redémarrages. Un fichier secret monté mais illisible fait échouer le démarrage. Le secret d’administration n’est pas requis pour le modèle de base ; les secrets ne doivent pas être écrits dans `.env`.
+
+En production, configurez explicitement l’environnement, désactivez le mode debug et activez HTTPS ainsi que les cookies `Secure`. Le seul réglage `FLASK_ENV=production` ne suffit pas : le démarrage est refusé si `DEBUG` reste activé. Par exemple, les variables de surcharge sont `TTL_LAMA_FLASK_ENV=production`, `TTL_LAMA_DEBUG=false`, `TTL_LAMA_ENFORCE_SECURE_CONNECTION=true` et `TTL_LAMA_SESSION_COOKIE_SECURE=true`. En production, un warning est journalisé tant que le compte administrateur utilise encore le mot de passe initial. L’API authentifiée `GET /auth/security-status` expose uniquement l’indicateur booléen `default_admin_password_in_use`.
 
 Exemple :
 
 ```yaml
 app:
-  environment: production
-  debug: false
+  environment: development
+  debug: true
   secret_key_file: /run/secrets/flask_secret_key
   log_level: info
 
@@ -47,7 +51,7 @@ auth:
   cookie_name: ttl-lama_session
   admin:
     username: admin
-    password_file: /run/secrets/admin_password
+    password: admin
 
 database:
   type: sqlite
@@ -55,8 +59,9 @@ database:
   schema: public
 
 security:
-  enforce_secure_connection: true
+  enforce_secure_connection: false
   session_cookie_name: session
+  session_cookie_secure: false
 
 access_profiles:
   file: /etc/ttl-lama/access-profiles.yml
@@ -68,11 +73,21 @@ Les profils d’accès sont validés séparément dans `/etc/ttl-lama/access-pro
 
 ```yaml
 profiles:
+  admin:
+    default_duration: 1h
+    maximum_duration: 8h
+    networks:
+      - 10.0.0.0/8
+  user:
+    default_duration: 8h
+    maximum_duration: 24h
+    networks:
+      - 192.168.0.0/16
   maintenance:
     default_duration: 30m
     maximum_duration: 2h
     networks:
-      - 192.168.10.10/32
+      - 172.16.0.0/12
 ```
 
 Les durées acceptent les unités `d`, `h`, `m` et `s`. La durée par défaut ne peut pas dépasser la durée maximale et chaque profil doit définir au moins un réseau.
@@ -102,15 +117,13 @@ database:
 
 ## Secrets
 
-Les secrets doivent être séparés de la configuration ordinaire et ne sont jamais inclus dans l’image. Les YAML de configuration de base ne contiennent que les chemins des secrets montés :
+Les secrets doivent être séparés de la configuration ordinaire et ne sont jamais inclus dans l’image. La clé Flask peut être montée ou générée et persistée dans `/data`. Les autres secrets externes peuvent être référencés par leur chemin monté :
 
 ```yaml
 app:
   secret_key_file: /run/secrets/flask_secret_key
 
 auth:
-  admin:
-    password_file: /run/secrets/admin_password
   oidc:
     client_secret_file: /run/secrets/oidc_client_secret
 
@@ -118,14 +131,14 @@ database:
   password_file: /run/secrets/database_password
 ```
 
-Le contenu est lu au démarrage. En production, la clé Flask doit contenir au moins 32 caractères et les cookies doivent être marqués `Secure`. L’authentification est toujours obligatoire.
+Le contenu des secrets montés est lu au démarrage. En production, la clé Flask doit contenir au moins 32 caractères et les cookies doivent être marqués `Secure`. L’authentification est toujours obligatoire. Les trois profils fournis dans `access-profiles.yml` sont des exemples à adapter aux réseaux et durées de votre déploiement.
 
 ## Chemins dans le conteneur
 
 - `/opt/ttl-lama/` : code Python et serveur WSGI ;
 - `/etc/ttl-lama/config.yml` : configuration YAML de base intégrée à l’image, remplaçable par un montage en lecture seule ;
 - `/etc/ttl-lama/access-profiles.yml` : profils d’accès de base intégrés à l’image, remplaçables par un montage en lecture seule ;
-- `/data/` : base SQLite et données persistantes ;
+- `/data/` : base SQLite, données persistantes et clé Flask générée en l’absence de secret monté ;
 - `/run/secrets/` : secrets montés, hors de l’image.
 
 Le processus applicatif s’exécute sans privilèges root. Aucun privilège WireGuard n’est ajouté tant que le backend correspondant n’est pas implémenté.

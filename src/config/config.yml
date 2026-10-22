@@ -1,6 +1,6 @@
 app:
-  environment: production
-  debug: false
+  environment: development
+  debug: true
   secret_key_file: /run/secrets/flask_secret_key
   log_level: info
 
@@ -13,7 +13,7 @@ auth:
   cookie_name: ttl-lama_session
   admin:
     username: admin
-    password_file: /run/secrets/admin_password
+    password: admin
 
 database:
   type: sqlite
@@ -21,10 +21,10 @@ database:
   schema: public
 
 security:
-  enforce_secure_connection: true
+  enforce_secure_connection: false
   session_cookie_name: session
   session_cookie_httponly: true
-  session_cookie_secure: true
+  session_cookie_secure: false
   session_cookie_samesite: Lax
   session_cookie_path: /
 

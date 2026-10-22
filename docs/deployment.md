@@ -27,14 +27,18 @@ mkdir -p secrets
 docker compose up --build -d
 ```
 
-The default configuration enables internal authentication and expects `secrets/flask_secret_key` and `secrets/admin_password`. Create both with strong values and make them readable by the unprivileged container user. Do not put secret values in `.env`.
+The embedded configuration enables internal authentication in development: `DEBUG` is enabled, HTTP connections are allowed, and cookies are not marked `Secure`. The initial `admin` account password is `admin`. For the first production initialization, replace it in the configuration before startup. This value is used only to create the account; changing the configuration later does not change the password already stored.
+
+A Flask secret mounted at `secrets/flask_secret_key` takes precedence. If it is absent, the container entrypoint generates a random key at `/data/flask_secret_key`, with owner-only permissions. The key persists across restarts through the `/data` volume. If a mounted secret exists but cannot be read, startup fails. An admin password secret is not required by the base configuration; do not put secret values in `.env`.
+
+For production, explicitly set the environment, disable debug mode, and enable HTTPS enforcement and `Secure` cookies. Setting only `FLASK_ENV=production` is not enough: startup is rejected while `DEBUG` remains enabled. For example, the override variables are `TTL_LAMA_FLASK_ENV=production`, `TTL_LAMA_DEBUG=false`, `TTL_LAMA_ENFORCE_SECURE_CONNECTION=true`, and `TTL_LAMA_SESSION_COOKIE_SECURE=true`. In production, a warning is logged while the administrator still uses the initial password. Authenticated API endpoint `GET /auth/security-status` exposes only the boolean indicator `default_admin_password_in_use`.
 
 Example:
 
 ```yaml
 app:
-  environment: production
-  debug: false
+  environment: development
+  debug: true
   secret_key_file: /run/secrets/flask_secret_key
   log_level: info
 
@@ -47,7 +51,7 @@ auth:
   cookie_name: ttl-lama_session
   admin:
     username: admin
-    password_file: /run/secrets/admin_password
+    password: admin
 
 database:
   type: sqlite
@@ -55,8 +59,9 @@ database:
   schema: public
 
 security:
-  enforce_secure_connection: true
+  enforce_secure_connection: false
   session_cookie_name: session
+  session_cookie_secure: false
 
 access_profiles:
   file: /etc/ttl-lama/access-profiles.yml
@@ -68,6 +73,16 @@ Access profiles are validated separately in `/etc/ttl-lama/access-profiles.yml`:
 
 ```yaml
 profiles:
+  admin:
+    default_duration: 1h
+    maximum_duration: 8h
+    networks:
+      - 10.0.0.0/8
+  user:
+    default_duration: 8h
+    maximum_duration: 24h
+    networks:
+      - 192.168.0.0/16
   maintenance:
     default_duration: 30m
     maximum_duration: 2h
@@ -102,15 +117,13 @@ database:
 
 ## Secrets
 
-Secrets must be kept separate from ordinary configuration and are never included in the image. The default YAML files contain only paths to mounted secrets:
+Secrets must be kept separate from ordinary configuration and are never included in the image. The Flask key may be mounted or generated and persisted under `/data`. Other external secrets may be referenced by their mounted paths:
 
 ```yaml
 app:
   secret_key_file: /run/secrets/flask_secret_key
 
 auth:
-  admin:
-    password_file: /run/secrets/admin_password
   oidc:
     client_secret_file: /run/secrets/oidc_client_secret
 
@@ -118,14 +131,14 @@ database:
   password_file: /run/secrets/database_password
 ```
 
-Secrets are read at startup. In production, the Flask key must contain at least 32 characters and cookies must be marked `Secure`. Authentication is always required.
+Mounted secret contents are read at startup. In production, the Flask key must contain at least 32 characters and cookies must be marked `Secure`. Authentication is always required. The three profiles in `access-profiles.yml` are examples to adapt to your deployment's networks and durations.
 
 ## Container Paths
 
 - `/opt/ttl-lama/`: Python source and WSGI server;
 - `/etc/ttl-lama/config.yml`: base YAML configuration embedded in the image and replaceable with a read-only mount;
 - `/etc/ttl-lama/access-profiles.yml`: base access profiles embedded in the image and replaceable with a read-only mount;
-- `/data/`: SQLite database and persistent data;
+- `/data/`: SQLite database, persistent data, and generated Flask key when no secret is mounted;
 - `/run/secrets/`: mounted secrets, kept out of the image.
 
 The application process runs without root privileges. No WireGuard privilege is added until that backend is implemented.

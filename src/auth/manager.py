@@ -20,6 +20,7 @@ from auth.services import SessionService, UserService
 from api.config import FlaskSettings
 
 AuthMode = Literal["internal", "external"]
+DEFAULT_ADMIN_PASSWORD = "admin"
 LOGGER = logging.getLogger(__name__)
 
 class AuthManager:
@@ -146,6 +147,17 @@ class AuthManager:
         :rtype: User | None
         """
         return self.backend.get_current_user(session_token)
+
+    def is_default_admin_password_in_use(self) -> bool:
+        """Check whether the configured initial administrator still uses its default password.
+
+        :returns: Whether the persisted administrator password matches the initial default.
+        :rtype: bool
+        """
+        return self.mode == "internal" and self.users.is_password_in_use(
+            self.settings.ADMIN_USERNAME,
+            DEFAULT_ADMIN_PASSWORD,
+        )
 
     def logout(self, session_token: str | None = None) -> None:
         """Log out the current session.

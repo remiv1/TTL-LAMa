@@ -1,6 +1,6 @@
 services:
   postgres:
-    image: postgres:16-alpine
+    image: docker.io/library/postgres:16-alpine
     environment:
       POSTGRES_DB: ttl_lama_test
       POSTGRES_USER: ttl_lama_test
@@ -12,7 +12,7 @@ services:
       retries: 20
 
   mariadb:
-    image: mariadb:11.4
+    image: docker.io/library/mariadb:11.4
     environment:
       MARIADB_DATABASE: ttl_lama_test
       MARIADB_ROOT_PASSWORD: test-only-password
@@ -28,7 +28,7 @@ services:
       retries: 30
 
   mysql:
-    image: mysql:8.4
+    image: docker.io/library/mysql:8.4
     environment:
       MYSQL_DATABASE: ttl_lama_test
       MYSQL_ROOT_PASSWORD: test-only-password
@@ -49,6 +49,7 @@ services:
       dockerfile: src/Dockerfile
       target: test
     environment:
+      TTL_LAMA_CONFIG_FILE: /dev/null
       TTL_LAMA_TEST_DATABASES: sqlite,postgresql,mariadb,mysql
       TTL_LAMA_TEST_POSTGRESQL_URL: postgresql+psycopg://ttl_lama_test:test-only-password@postgres:5432/ttl_lama_test
       TTL_LAMA_TEST_MARIADB_URL: mariadb+pymysql://root:test-only-password@mariadb:3306/ttl_lama_test
@@ -60,4 +61,4 @@ services:
         condition: service_healthy
       mysql:
         condition: service_healthy
-    command: ["python", "-m", "pytest", "-q", "-p", "no:cacheprovider"]
+    command: ["python", "-m", "pytest", "-v", "--color=yes", "-ra", "-p", "no:cacheprovider"]

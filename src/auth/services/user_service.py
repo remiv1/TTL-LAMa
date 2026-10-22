@@ -313,6 +313,23 @@ class UserService:
         self._commit(session)
         return self._to_user(record)
 
+    def is_password_in_use(self, username: str, password: str) -> bool:
+        """Indicate whether an internal account currently uses a password.
+
+        :param username: The account username to inspect.
+        :type username: str
+        :param password: The password to verify against its stored hash.
+        :type password: str
+        :returns: Whether the account exists with the given password.
+        :rtype: bool
+        """
+        record = self.db_session().scalar(select(User).where(User.username == username))
+        return bool(
+            record is not None
+            and not record.hash_password.startswith("!")
+            and check_password_hash(record.hash_password, password)
+        )
+
     def get(self, user_id: int) -> UniformUser | None:
         """Return the uniform identity associated with a SQL identifier.
 
