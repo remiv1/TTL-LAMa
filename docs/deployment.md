@@ -17,6 +17,18 @@ TTL-LAMa uses declarative configuration. Infrastructure configuration is deliber
 3. `TTL_LAMA_...` environment variables, which override YAML values;
 4. secrets mounted in the container and referenced with a `_FILE` setting.
 
+The runtime Compose configuration reads the host-side `.env` file and injects its variables into the container process using `env_file`. The file is neither copied into the image nor sent in the build context; `.dockerignore` and `.gitignore` exclude it. Copy [.env.example](../.env.example) to `.env` and add only the overrides you need. Unset values continue to come from the embedded YAML configuration.
+
+Start the service with:
+
+```sh
+cp .env.example .env
+mkdir -p secrets
+docker compose up --build -d
+```
+
+The default configuration enables internal authentication and expects `secrets/flask_secret_key` and `secrets/admin_password`. Create both with strong values and make them readable by the unprivileged container user. Do not put secret values in `.env`.
+
 Example:
 
 ```yaml
@@ -117,6 +129,8 @@ Secrets are read at startup. In production, the Flask key must contain at least 
 - `/run/secrets/`: mounted secrets, kept out of the image.
 
 The application process runs without root privileges. No WireGuard privilege is added until that backend is implemented.
+
+The [compose.yml](../compose.yml) file uses a named volume for `/data`, mounts `secrets/` read-only, and passes the host `.env` values into the container.
 
 ## Database Integration Tests
 

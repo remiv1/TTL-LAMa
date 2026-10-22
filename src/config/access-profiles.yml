@@ -1,1 +1,11 @@
+# Ajouter des profils adaptés aux réseaux de votre déploiement.
+# Les durées acceptent les unités d, h, m et s.
 profiles: {}
+
+# Exemple à personnaliser avant activation :
+# profiles:
+#   maintenance:
+#     default_duration: 30m
+#     maximum_duration: 2h
+#     networks:
+#       - 192.168.10.10/32

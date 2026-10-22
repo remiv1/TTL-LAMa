@@ -17,6 +17,18 @@ TTL-LAMa utilise une configuration déclarative. La configuration de l’infrast
 3. des variables d’environnement `TTL_LAMA_...`, prioritaires sur le YAML ;
 4. des secrets montés dans le conteneur et référencés par un paramètre `_FILE`.
 
+Le Compose d’exécution lit le fichier `.env` présent sur l’hôte et injecte ses variables dans le processus du conteneur (`env_file`). Ce fichier n’est ni copié dans l’image ni envoyé dans le contexte de build ; `.dockerignore` et `.gitignore` l’excluent. Le modèle [.env.example](../.env.example) peut être copié puis complété pour les surcharges nécessaires. Les valeurs absentes continuent d’utiliser le YAML intégré.
+
+Pour démarrer :
+
+```sh
+cp .env.example .env
+mkdir -p secrets
+docker compose up --build -d
+```
+
+Le modèle de configuration active l’authentification interne et attend les fichiers `secrets/flask_secret_key` et `secrets/admin_password`. Créez-les avec des valeurs fortes, lisibles par l’utilisateur non privilégié du conteneur. Les secrets ne doivent pas être écrits dans `.env`.
+
 Exemple :
 
 ```yaml
@@ -117,6 +129,8 @@ Le contenu est lu au démarrage. En production, la clé Flask doit contenir au m
 - `/run/secrets/` : secrets montés, hors de l’image.
 
 Le processus applicatif s’exécute sans privilèges root. Aucun privilège WireGuard n’est ajouté tant que le backend correspondant n’est pas implémenté.
+
+Le fichier [compose.yml](../compose.yml) utilise un volume nommé pour `/data`, monte `secrets/` en lecture seule et transmet le `.env` de l’hôte au conteneur.
 
 ## Tests d’intégration des bases
 

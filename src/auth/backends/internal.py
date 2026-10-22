@@ -86,3 +86,12 @@ class InternalAuthBackend(AuthBackend):
         :rtype: None
         """
         self.session_service.delete(session_token)
+
+    def complete_login(self) -> User:
+        """Reject interactive login because the internal backend does not support it.
+
+        :raises NotImplementedError: Interactive login is only supported by OIDC.
+        """
+        raise NotImplementedError(
+            "Le flux de connexion interactif n'est pas pris en charge en mode interne"
+        )

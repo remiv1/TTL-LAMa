@@ -101,7 +101,7 @@ class OIDCAuthBackend(AuthBackend):
         self.user_service = user_service
         self.session_service = session_service
 
-    def authenticate(self, credentials: dict[str, object] | None = None) -> User | None:
+    def authenticate(self, credentials: dict[str, object] | None = None) -> User | None:    # pylint: disable=R1711
         """Reject password authentication because OIDC uses a redirect flow.
 
         :param credentials: The credentials provided for authentication.

@@ -38,7 +38,7 @@ from api.common.db_objects.users import (
     UserSession,
     UserPreferences,
 )
-from auth.models import User as UniformUser
+from auth.models import ExternalUserIdentity, User as UniformUser, UserUpdate
 
 INITIAL_GROUPS = ("ADMIN", "EDITOR", "VIEWER")
 OIDC_PASSWORD_MARKER = "!oidc-no-password"
@@ -383,137 +383,93 @@ class UserService:
     @_rollback_on_error
     def update_user(
         self,
-        user_id: int,
-        *,
-        username: str | None = None,
-        email: str | None = None,
-        password: str | None = None,
-        group_names: list[str] | None = None,
-        enabled: bool | None = None,
+        changes: UserUpdate,
     ) -> UniformUser | None:
-        """Update only the provided fields.
+        """Update only the fields provided in the request.
 
-        :param user_id: The SQL identifier of the user to update.
-        :type user_id: int
-        :param username: The new username of the user.
-        :type username: str | None
-        :param email: The new email of the user.
-        :type email: str | None
-        :param password: The new password of the user.
-        :type password: str | None
-        :param group_names: The new list of group names to assign to the user.
-        :type group_names: list[str] | None
-        :param enabled: The new enabled status of the user.
-        :type enabled: bool | None
+        :param changes: User identifier and fields to update.
+        :type changes: UserUpdate
 
-        :return: The uniform identity of the updated user if the user exists, otherwise None.
+        :return: The updated identity, or ``None`` if the account does not exist.
         :rtype: UniformUser | None
 
-        :raises ValueError: If any provided field is invalid.
-        :raises SQLAlchemyError: If committing the session to the database fails.
+        :raises ValueError: If a provided field is invalid.
+        :raises SQLAlchemyError: If the transaction fails.
         """
         session = self.db_session()
-        record = session.get(User, user_id)
+        record = session.get(User, changes.user_id)
         if record is None:
             return None
         source = self._auth_source(record)
-        self._validate_user_update(source, user_id, username, email, password)
-        self._apply_user_update(
-            session,
-            record,
-            user_id,
-            username,
-            email,
-            password,
-            group_names,
-            enabled,
-        )
+        self._validate_user_update(source, changes)
+        self._apply_user_update(session, record, changes)
         self._commit(session)
         return self._to_user(record, source)
 
     @staticmethod
     def _validate_user_update(
         source: Literal["internal", "external"],
-        user_id: int,
-        username: str | None,
-        email: str | None,
-        password: str | None,
+        changes: UserUpdate,
     ) -> None:
-        """Validate updates against the user's authentication source and field limits.
+        """Validate changes against the account source and field limits.
 
-        :param source: Authentication source of the existing account.
+        :param source: Authentication source of the account.
         :type source: Literal["internal", "external"]
-        :param user_id: Identifier used in validation logs.
-        :type user_id: int
-        :param username: Optional replacement username.
-        :type username: str | None
-        :param email: Optional replacement email address.
-        :type email: str | None
-        :param password: Optional replacement password.
-        :type password: str | None
-        :returns: ``None``.
-        :rtype: None
-        :raises ValueError: If a field is invalid or an external account is modified.
+        :param changes: Fields submitted for validation.
+        :type changes: UserUpdate
+        :raises ValueError: If a field is invalid or the account is external.
         """
         if source == "external" and any(
-            value is not None for value in (username, email, password)
+            value is not None
+            for value in (changes.username, changes.email, changes.password)
         ):
             raise ValueError("Une identité externe ne peut pas être convertie en compte interne")
-        if username is not None and (not username.strip() or len(username) > 50):
-            LOGGER.exception("Invalid username for user_id: %d", user_id)
+        if changes.username is not None and (
+            not changes.username.strip() or len(changes.username) > 50
+        ):
+            LOGGER.exception("Invalid username for user_id: %d", changes.user_id)
             raise ValueError("Le nom d'utilisateur est invalide")
-        if email is not None and (not email.strip() or len(email) > 100):
-            LOGGER.exception("Invalid email for user_id: %d", user_id)
+        if changes.email is not None and (
+            not changes.email.strip() or len(changes.email) > 100
+        ):
+            LOGGER.exception("Invalid email for user_id: %d", changes.user_id)
             raise ValueError("L'email est invalide")
-        if password is not None and not password:
-            LOGGER.exception("Password is empty for user_id: %d", user_id)
+        if changes.password is not None and not changes.password:
+            LOGGER.exception("Password is empty for user_id: %d", changes.user_id)
             raise ValueError("Le mot de passe ne peut pas etre vide")
 
     @staticmethod
     def _apply_user_update(
         session: Session,
         record: User,
-        user_id: int,
-        username: str | None,
-        email: str | None,
-        password: str | None,
-        group_names: list[str] | None,
-        enabled: bool | None,
+        changes: UserUpdate,
     ) -> None:
-        """Apply validated user changes and revoke sessions when credentials change.
+        """Apply validated changes and revoke sessions when required.
 
-        :param session: The active SQLAlchemy session.
+        :param session: Active SQLAlchemy session.
         :type session: Session
         :param record: User record to update.
         :type record: User
-        :param user_id: Identifier of the user being changed.
-        :type user_id: int
-        :param username: Optional replacement username.
-        :type username: str | None
-        :param email: Optional replacement email address.
-        :type email: str | None
-        :param password: Optional replacement password.
-        :type password: str | None
-        :param group_names: Optional replacement group names.
-        :type group_names: list[str] | None
-        :param enabled: Optional account-enabled state.
-        :type enabled: bool | None
-        :returns: ``None``.
-        :rtype: None
+        :param changes: Fields to apply.
+        :type changes: UserUpdate
         """
-        if username is not None:
-            record.username = username
-        if email is not None:
-            record.email = email
-        if password is not None:
-            record.hash_password = generate_password_hash(password)
-            session.execute(delete(UserSession).where(UserSession.user_id == user_id))
-        if group_names is not None:
-            record.groups = UserService._get_groups(session, group_names)
-        if enabled is not None:
-            record.enabled = enabled
-            if not enabled:
-                session.execute(delete(UserSession).where(UserSession.user_id == user_id))
+        if changes.username is not None:
+            record.username = changes.username
+        if changes.email is not None:
+            record.email = changes.email
+        if changes.password is not None:
+            record.hash_password = generate_password_hash(changes.password)
+            session.execute(
+                delete(UserSession).where(UserSession.user_id == changes.user_id)
+            )
+        if changes.group_names is not None:
+            record.groups = UserService._get_groups(session, changes.group_names)
+        if changes.enabled is not None:
+            record.enabled = changes.enabled
+            if not changes.enabled:
+                session.execute(
+                    delete(UserSession).where(UserSession.user_id == changes.user_id)
+                )
 
     @_rollback_on_error
     def reset_login_lock(self, user_id: int) -> bool:
@@ -594,16 +550,9 @@ class UserService:
 
         :raises ValueError: If the OIDC response does not contain a valid subject.
         """
-        issuer, subject, username, email, group_names = self._external_identity(issuer, claims)
+        identity_data = self._external_identity(issuer, claims)
         session = self.db_session()
-        record = self._synchronize_external_record(
-            session,
-            issuer,
-            subject,
-            username,
-            email,
-            group_names,
-        )
+        record = self._synchronize_external_record(session, identity_data)
         self._commit(session)
         return self._to_user(record, "external")
 
@@ -611,15 +560,17 @@ class UserService:
     def _external_identity(
         issuer: str,
         claims: dict[str, object],
-    ) -> tuple[str, str, str, str, set[str]]:
+    ) -> ExternalUserIdentity:
         """Validate OIDC claims and derive stable local identity fields.
 
         :param issuer: The configured OIDC issuer.
         :type issuer: str
         :param claims: User claims returned by the identity provider.
         :type claims: dict[str, object]
-        :returns: Issuer, subject, generated username, generated email, and allowed groups.
-        :rtype: tuple[str, str, str, str, set[str]]
+
+        :returns: External identity fields normalized for local persistence.
+        :rtype: ExternalUserIdentity
+
         :raises ValueError: If the issuer or subject is invalid.
         """
         subject = claims.get("sub")
@@ -641,44 +592,39 @@ class UserService:
             for group in cast(list[object], raw_groups):
                 if isinstance(group, str):
                     requested_groups.add(group)
-        group_names = requested_groups.intersection(INITIAL_GROUPS)
-        return issuer, subject, username, email, group_names
+        group_names = frozenset(requested_groups.intersection(INITIAL_GROUPS))
+        return ExternalUserIdentity(issuer, subject, username, email, group_names)
 
     def _synchronize_external_record(
         self,
         session: Session,
-        issuer: str,
-        subject: str,
-        username: str,
-        email: str,
-        group_names: set[str],
+        external_identity: ExternalUserIdentity,
     ) -> User:
-        """Find or create the local account matching an external identity.
+        """Create or retrieve the local user associated with an external identity.
 
-        :param session: The active SQLAlchemy session.
+        :param session: Active SQLAlchemy session.
         :type session: Session
-        :param issuer: The identity provider issuer.
-        :type issuer: str
-        :param subject: The subject identifier from the provider.
-        :type subject: str
-        :param username: Stable generated local username.
-        :type username: str
-        :param email: Stable generated local email placeholder.
-        :type email: str
-        :param group_names: Allowed groups requested by the identity provider.
-        :type group_names: set[str]
+        :param external_identity: Normalized external identity data.
+        :type external_identity: ExternalUserIdentity
         :returns: The synchronized local user record.
         :rtype: User
-        :raises ValueError: If an existing account conflicts with the external identity.
+        :raises ValueError: If an existing account conflicts with the identity.
         """
-        record = session.scalar(select(User).where(User.username == username))
+        record = session.scalar(
+            select(User).where(User.username == external_identity.username)
+        )
         identity = session.get(UserIdentity, record.id) if record is not None else None
-        self._validate_external_account(record, identity, issuer, subject)
+        self._validate_external_account(
+            record,
+            identity,
+            external_identity.issuer,
+            external_identity.subject,
+        )
         groups = self._ensure_groups(session)
         if record is None:
             record = User(
-                username=username,
-                email=email,
+                username=external_identity.username,
+                email=external_identity.email,
                 hash_password=OIDC_PASSWORD_MARKER,
                 enabled=True,
                 created_at=datetime.now(timezone.utc),
@@ -690,12 +636,14 @@ class UserService:
                 UserIdentity(
                     user_id=record.id,
                     auth_source="external",
-                    issuer=issuer,
-                    subject=subject,
+                    issuer=external_identity.issuer,
+                    subject=external_identity.subject,
                 )
             )
         self._ensure_login_state(session, record.id)
-        record.groups = [group for group in groups if group.name in group_names]
+        record.groups = [
+            group for group in groups if group.name in external_identity.group_names
+        ]
         return record
 
     @staticmethod

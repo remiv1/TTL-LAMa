@@ -12,21 +12,18 @@
 from __future__ import annotations
 
 import logging
-import os
 import sqlite3
 from enum import Enum
+from importlib import import_module
 from pathlib import Path
+from typing import cast
 
 from pydantic import Field, computed_field, model_validator
-from pydantic_settings import (
-    BaseSettings,
-    PydanticBaseSettingsSource,
-    SettingsConfigDict,
-    YamlConfigSettingsSource,
-)
 from sqlalchemy import Engine, URL, create_engine, event
 from sqlalchemy.orm import Session, scoped_session, sessionmaker
 from sqlalchemy.schema import CreateSchema
+
+from ._settings_sources import YamlSettingsBase
 
 LOGGER = logging.getLogger(__name__)
 
@@ -34,7 +31,21 @@ LOGGER = logging.getLogger(__name__)
 class DbType(str, Enum):
     """Enumeration of supported database types.
 
-    Supported values are ``sqlite``, ``postgresql``, ``mysql``, and ``mariadb``.
+    .. SQLITE:: SQLite database type.
+        - type: str
+        - value: "sqlite"
+
+    .. POSTGRESQL:: PostgreSQL database type.
+        - type: str
+        - value: "postgresql"
+
+    .. MYSQL:: MySQL database type.
+        - type: str
+        - value: "mysql"
+
+    .. MARIADB:: MariaDB database type.
+        - type: str
+        - value: "mariadb"
     """
 
     SQLITE = "sqlite"
@@ -43,50 +54,16 @@ class DbType(str, Enum):
     MARIADB = "mariadb"
 
 
-class Settings(BaseSettings):
-    """Database settings for the TTL-LAMa API.
+class Settings(YamlSettingsBase):
+    """Database connection and persistence settings.
 
-    :param model_config: Configuration for the Pydantic model.
-    :type model_config: SettingsConfigDict
-    :param DB_PATH: Path to the SQLite database file.
-    :type DB_PATH: str
-    :param DB_TYPE: Type of the database (SQLite, PostgreSQL, MySQL, MariaDB).
-    :type DB_TYPE: DbType
-    :param DB_HOST: Database host.
-    :type DB_HOST: str
-    :param DB_PORT: Database port.
-    :type DB_PORT: int
-    :param DB_USER: Database user.
-    :type DB_USER: str
-    :param DB_PASSWORD: Database password.
-    :type DB_PASSWORD: str
-    :param DB_PASSWORD_FILE: Path to the mounted database password.
-    :type DB_PASSWORD_FILE: Path | None
-    :param DB_NAME: Database name.
-    :type DB_NAME: str
-    :param DB_SCHEMA: Database schema.
-    :type DB_SCHEMA: str
-    :param db_url: Constructed database URL based on the configuration.
-    :type db_url: str | URL
-
-    .. methods::
-        - `settings_customise_sources`: Set the settings-source priority.
-        - `normalize_database_yaml`: Map nested database YAML to model fields.
-        - `validate_database_config`: Resolve secrets and validate database settings.
-        - `db_url`: Build the SQLAlchemy URL.
-
-    .. author:: Rémi Verschuur <rverschuur@audit-io.fr>
-    .. version:: 1.0.0
+    .. attributes::
+        - ``DB_TYPE``: Database engine type.
+        - ``DB_PATH``: SQLite database file path.
+        - ``DB_HOST``: External database host.
+        - ``DB_NAME``: External database name.
+        - ``DB_SCHEMA``: External database schema.
     """
-
-    model_config = SettingsConfigDict(
-        yaml_file="/etc/ttl-lama/config.yml",
-        env_prefix="TTL_LAMA_",
-        env_nested_delimiter="__",
-        env_file_encoding="utf-8",
-        case_sensitive=False,
-        extra="ignore",
-    )
 
     DB_TYPE: DbType = DbType.SQLITE
     DB_PATH: str = "/data/ttl-lama.db"
@@ -97,49 +74,6 @@ class Settings(BaseSettings):
     DB_PASSWORD_FILE: Path | None = Field(default=None, repr=False)
     DB_NAME: str = "ttl_lama"
     DB_SCHEMA: str = "public"
-
-    @classmethod
-    def settings_customise_sources(
-        cls,
-        settings_cls: type[BaseSettings],
-        init_settings: PydanticBaseSettingsSource,
-        env_settings: PydanticBaseSettingsSource,
-        dotenv_settings: PydanticBaseSettingsSource,
-        file_secret_settings: PydanticBaseSettingsSource,
-    ) -> tuple[PydanticBaseSettingsSource, ...]:
-        """Place environment variables before the YAML configuration.
-
-        :param settings_cls: The settings class being configured.
-        :type settings_cls: type[BaseSettings]
-        :param init_settings: Values passed directly to the settings constructor.
-        :type init_settings: PydanticBaseSettingsSource
-        :param env_settings: Values loaded from environment variables.
-        :type env_settings: PydanticBaseSettingsSource
-        :param dotenv_settings: Values loaded from an optional dotenv file.
-        :type dotenv_settings: PydanticBaseSettingsSource
-        :param file_secret_settings: Values loaded from Pydantic secret files.
-        :type file_secret_settings: PydanticBaseSettingsSource
-        :returns: Settings sources ordered from highest to lowest priority.
-        :rtype: tuple[PydanticBaseSettingsSource, ...]
-
-        .. note::
-            Constructor arguments and environment variables override YAML values.
-        """
-        config_file = os.environ.get(
-            "TTL_LAMA_CONFIG_FILE",
-            "/etc/ttl-lama/config.yml",
-        )
-        yaml_settings = YamlConfigSettingsSource(
-            settings_cls,
-            yaml_file=config_file,
-        )
-        return (
-            init_settings,
-            env_settings,
-            yaml_settings,
-            dotenv_settings,
-            file_secret_settings,
-        )
 
     @model_validator(mode="before")
     @classmethod
@@ -153,10 +87,13 @@ class Settings(BaseSettings):
         """
         if not isinstance(values, dict):
             return values
-        database = values.get("database")
+
+        source_values = cast(dict[str, object], values)
+        database = source_values.get("database")
         if not isinstance(database, dict):
-            return values
-        normalized = dict(values)
+            return source_values
+        normalized: dict[str, object] = dict(source_values)
+        database_values = cast(dict[str, object], database)
         key_mapping = {
             "type": "DB_TYPE",
             "path": "DB_PATH",
@@ -169,8 +106,8 @@ class Settings(BaseSettings):
             "schema": "DB_SCHEMA",
         }
         for key, field_name in key_mapping.items():
-            if key in database:
-                normalized.setdefault(field_name, database[key])
+            if key in database_values:
+                normalized.setdefault(field_name, database_values[key])
         if normalized.get("DB_TYPE") == "postgres":
             normalized["DB_TYPE"] = DbType.POSTGRESQL
         return normalized
@@ -183,21 +120,24 @@ class Settings(BaseSettings):
         :rtype: Settings
         :raises ValueError: If the secret source or external database settings are invalid.
         """
-        if self.DB_PASSWORD_FILE is not None:
-            if self.DB_PASSWORD:
+        password_file = cast(Path | None, self.model_dump()["DB_PASSWORD_FILE"])
+        password = self.DB_PASSWORD
+        if password_file is not None:
+            if password:
                 raise ValueError("Configurer DB_PASSWORD ou DB_PASSWORD_FILE, pas les deux")
             try:
-                self.DB_PASSWORD = self.DB_PASSWORD_FILE.read_text(
+                password = password_file.read_text(
                     encoding="utf-8",
                 ).rstrip("\r\n")
             except OSError as error:
                 raise ValueError("Impossible de lire le fichier secret DB_PASSWORD") from error
+            setattr(self, "DB_PASSWORD", password)
         if self.DB_TYPE != DbType.SQLITE:
             if not self.DB_HOST or not self.DB_NAME or not self.DB_USER:
                 raise ValueError(
                     "DB_HOST, DB_NAME et DB_USER sont requis pour une base externe"
                 )
-            if not self.DB_PASSWORD:
+            if not password:
                 raise ValueError(
                     "DB_PASSWORD ou DB_PASSWORD_FILE est requis pour une base externe"
                 )
@@ -275,16 +215,18 @@ class DatabaseConfig:
 
         :raises SQLAlchemyError: If schema or table initialization fails.
         """
-        from api.common.db_objects import Base
-        from api.common.db_objects.users import User
+        base_module = import_module("api.common.db_objects")
+        user_module = import_module("api.common.db_objects.users")
+        base_class = getattr(base_module, "Base")
+        user_model = getattr(user_module, "User")
 
         with self.engine.begin() as connection:
             if self.settings.DB_TYPE == DbType.POSTGRESQL:
                 connection.execute(
                     CreateSchema(self.settings.DB_SCHEMA, if_not_exists=True),
                 )
-            Base.metadata.create_all(connection, checkfirst=True)
-        LOGGER.debug("Initialized database tables for %s", User.__tablename__)
+            base_class.metadata.create_all(connection, checkfirst=True)
+        LOGGER.debug("Initialized database tables for %s", user_model.__tablename__)
 
     def close(self) -> None:
         """Remove the scoped session and dispose of the database engine.
@@ -296,13 +238,11 @@ class DatabaseConfig:
         self.engine.dispose()
 
     def _create_engine(self) -> Engine:
-        """Create the configured engine and apply dialect-specific options.
+        """Create the configured engine and apply SQLite connection settings.
 
         :returns: The configured SQLAlchemy engine.
         :rtype: sqlalchemy.engine.Engine
         """
-        from api.common.db_objects import TABLE_SCHEMA_TOKEN
-
         if self.settings.DB_TYPE == DbType.SQLITE:
             self._prepare_sqlite_directory()
             engine = create_engine(
@@ -310,19 +250,9 @@ class DatabaseConfig:
                 connect_args={"check_same_thread": False, "timeout": 30},
             )
             event.listen(engine, "connect", self._configure_sqlite_connection)
-            return engine.execution_options(
-                schema_translate_map={TABLE_SCHEMA_TOKEN: None},
-            )
+            return engine
 
-        engine = create_engine(self.settings.db_url, pool_pre_ping=True)
-        schema = (
-            self.settings.DB_SCHEMA
-            if self.settings.DB_TYPE == DbType.POSTGRESQL
-            else None
-        )
-        return engine.execution_options(
-            schema_translate_map={TABLE_SCHEMA_TOKEN: schema},
-        )
+        return create_engine(self.settings.db_url, pool_pre_ping=True)
 
     def _prepare_sqlite_directory(self) -> None:
         """Create the parent directory for a file-backed SQLite database.

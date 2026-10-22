@@ -1,9 +1,9 @@
+"""Pytest configuration and fixtures for TTL-LAMa tests."""
 from __future__ import annotations
 
 import os
 import uuid
 from collections.abc import Iterator
-from pathlib import Path
 
 import pytest
 from flask import Flask
@@ -50,13 +50,14 @@ def database_settings(
     request: pytest.FixtureRequest,
     tmp_path_factory: pytest.TempPathFactory,
 ) -> Iterator[DatabaseSettings]:
+    """Provide database settings for tests based on the requested database engine."""
     engine_name, raw_url = request.param
     if engine_name == "sqlite":
         database_path = tmp_path_factory.mktemp("ttl-lama-sqlite") / "test.db"
         yield DatabaseSettings(DB_PATH=str(database_path))
         return
 
-    from sqlalchemy.engine import make_url
+    from sqlalchemy.engine import make_url  # pylint: disable=C0415
 
     database_url = make_url(raw_url)
     if engine_name == "postgresql":
@@ -83,11 +84,13 @@ def database_settings(
 
 @pytest.fixture(autouse=True)
 def disable_login_delay(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr("auth.services.user_service.sleep", lambda _seconds: None)
+    """Disable the login delay for tests."""
+    monkeypatch.setattr("auth.services.user_service.sleep", lambda _seconds: None)  # type: ignore
 
 
 @pytest.fixture
-def app(database_settings: DatabaseSettings) -> Iterator[Flask]:
+def app(database_settings: DatabaseSettings) -> Iterator[Flask]:    # pylint: disable=W0621
+    """Provide a Flask application configured for testing."""
     username = f"admin-{uuid.uuid4().hex[:12]}"
     settings = FlaskSettings(
         AUTH_MODE="internal",
@@ -111,5 +114,6 @@ def app(database_settings: DatabaseSettings) -> Iterator[Flask]:
 
 
 @pytest.fixture
-def login_admin(app: Flask) -> tuple[str, str]:
-    return app.config["TEST_ADMIN_USERNAME"], "correct-horse-battery"
+def login_admin(app: Flask) -> tuple[str, str]: # pylint: disable=W0621
+    """Provide the login credentials for the admin user."""
+    return app.config["TEST_ADMIN_USERNAME"], "correct-horse-battery"   # type: ignore

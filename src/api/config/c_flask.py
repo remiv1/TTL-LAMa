@@ -11,101 +11,29 @@ This module contains the configuration settings for the TTL-LAMa application.
 from __future__ import annotations
 
 import logging
-import os
 import re
 from pathlib import Path
 
-from typing import Literal
+from typing import Literal, cast
 from urllib.parse import urlparse
 
 from pydantic import Field, model_validator
-from pydantic_settings import (
-    BaseSettings,
-    PydanticBaseSettingsSource,
-    SettingsConfigDict,
-    YamlConfigSettingsSource,
-)
+from ._settings_sources import YamlSettingsBase
 
 LOGGER = logging.getLogger(__name__)
 COOKIE_NAME_PATTERN = re.compile(r"^[!#$%&'*+\-.^_`|~0-9A-Za-z]+$")
 _MAX_CONTENT_LENGTH = 2 * 1024 * 1024  # 2 MB
 
-class Settings(BaseSettings):
-    """Settings for the TTL-LAMa application.
-    
-    :param model_config: The configuration for the Pydantic model.
-    :type model_config: SettingsConfigDict
-    :param FLASK_ENV: The Flask environment (e.g., "production" or "development").
-    :type FLASK_ENV: str
-    :param DEBUG: Whether to enable Flask debug mode.
-    :type DEBUG: bool
-    :param SECRET_KEY: The secret key for the Flask application.
-    :type SECRET_KEY: str
-    :param SECRET_KEY_FILE: Path to the mounted Flask secret key.
-    :type SECRET_KEY_FILE: Path | None
-    :param LOG_LEVEL: The logging level for the application.
-    :type LOG_LEVEL: str
-    :param AUTH_MODE: The authentication mode, either internal or external.
-    :type AUTH_MODE: Literal["internal", "external"]
-    :param ADMIN_USERNAME: The username for the initial administrator (internal mode).
-    :type ADMIN_USERNAME: str
-    :param ADMIN_PASSWORD: The password for the initial administrator (internal mode).
-    :type ADMIN_PASSWORD: str
-    :param ADMIN_PASSWORD_FILE: Path to the mounted administrator password.
-    :type ADMIN_PASSWORD_FILE: Path | None
-    :param OIDC_ISSUER: The OIDC issuer URL (external mode).
-    :type OIDC_ISSUER: str
-    :param OIDC_CLIENT_ID: The OIDC client ID (external mode).
-    :type OIDC_CLIENT_ID: str
-    :param OIDC_CLIENT_SECRET: The OIDC client secret (external mode).
-    :type OIDC_CLIENT_SECRET: str
-    :param OIDC_CLIENT_SECRET_FILE: Path to the mounted OIDC client secret.
-    :type OIDC_CLIENT_SECRET_FILE: Path | None
-    :param OIDC_REDIRECT_URI: The OIDC redirect URI (external mode).
-    :type OIDC_REDIRECT_URI: str
-    :param ACCESS_PROFILES_FILE: Path to the declarative access-profile file.
-    :type ACCESS_PROFILES_FILE: Path | None
-    :param AUTH_COOKIE_NAME: The name of the authentication cookie.
-    :type AUTH_COOKIE_NAME: str
-    :param SERVER_HOST: The address on which the WSGI server listens.
-    :type SERVER_HOST: str
-    :param SERVER_PORT: The port on which the WSGI server listens.
-    :type SERVER_PORT: int
-    :param ENFORCE_SECURE_CONNECTION: Whether requests must use HTTPS.
-    :type ENFORCE_SECURE_CONNECTION: bool
-    :param SESSION_COOKIE_NAME: The name of the Flask session cookie.
-    :type SESSION_COOKIE_NAME: str
-    :param SESSION_COOKIE_HTTPONLY: Whether the Flask session cookie is HttpOnly.
-    :type SESSION_COOKIE_HTTPONLY: bool
-    :param SESSION_COOKIE_SECURE: Whether the Flask session cookie requires HTTPS.
-    :type SESSION_COOKIE_SECURE: bool
-    :param SESSION_COOKIE_SAMESITE: SameSite policy for the Flask session cookie.
-    :type SESSION_COOKIE_SAMESITE: str
-    :param SESSION_COOKIE_PATH: Path scope for the Flask session cookie.
-    :type SESSION_COOKIE_PATH: str
-    :param MAX_CONTENT_LENGTH: The maximum allowed size for incoming request bodies.
-    :type MAX_CONTENT_LENGTH: int
+class Settings(YamlSettingsBase):
+    """Flask application, authentication, and HTTP security settings.
 
-    .. methods::
-        - `normalize_nested_yaml`: Maps structured YAML sections to settings fields.
-        - `settings_customise_sources`: Configures settings-source priority.
-        - `validate_authentication`: Validates the authentication-related settings based
-        on the chosen authentication mode.
-        - `_validate_cookie_names`: Validates the names of the authentication and session cookies.
-        - `_validate_flask_cookie_settings`: Validates the Flask session cookie settings.
-        - `_read_secret`: Resolves a secret from a mounted file or direct value.
-
-    .. author:: Rémi Verschuur <rverschuur@audit-io.fr>
-    .. version:: 1.0.0
+    .. attributes::
+        - ``FLASK_ENV``: Application environment.
+        - ``AUTH_MODE``: Internal or external authentication mode.
+        - ``OIDC_ISSUER``: External identity provider issuer.
+        - ``SESSION_COOKIE_NAME``: Flask session cookie name.
+        - ``ENFORCE_SECURE_CONNECTION``: Whether HTTPS is required.
     """
-    model_config = SettingsConfigDict(
-        yaml_file="/etc/ttl-lama/config.yml",
-        env_prefix="TTL_LAMA_",
-        env_nested_delimiter="__",
-        env_file_encoding="utf-8",
-        case_sensitive=False,
-        extra="ignore",
-    )
 
     FLASK_ENV: str = Field(default="production")
     DEBUG: bool = Field(default=False)
@@ -146,7 +74,7 @@ class Settings(BaseSettings):
         if not isinstance(values, dict):
             return values
 
-        normalized = dict(values)
+        normalized: dict[str, object] = cast(dict[str, object], values)
         mappings = {
             "app": {
                 "environment": "FLASK_ENV",
@@ -177,78 +105,49 @@ class Settings(BaseSettings):
             },
         }
         for section_name, key_mapping in mappings.items():
-            section = normalized.get(section_name)
-            if isinstance(section, dict):
-                for key, field_name in key_mapping.items():
-                    if key in section:
-                        normalized.setdefault(field_name, section[key])
+            cls._copy_section_values(
+                normalized,
+                normalized.get(section_name),
+                key_mapping,
+            )
 
+        nested_auth = {
+            "admin": {
+                "username": "ADMIN_USERNAME",
+                "password": "ADMIN_PASSWORD",
+                "password_file": "ADMIN_PASSWORD_FILE",
+            },
+            "oidc": {
+                "issuer": "OIDC_ISSUER",
+                "client_id": "OIDC_CLIENT_ID",
+                "client_secret": "OIDC_CLIENT_SECRET",
+                "client_secret_file": "OIDC_CLIENT_SECRET_FILE",
+                "redirect_uri": "OIDC_REDIRECT_URI",
+            },
+        }
         auth = normalized.get("auth")
         if isinstance(auth, dict):
-            nested_auth = {
-                "admin": {
-                    "username": "ADMIN_USERNAME",
-                    "password": "ADMIN_PASSWORD",
-                    "password_file": "ADMIN_PASSWORD_FILE",
-                },
-                "oidc": {
-                    "issuer": "OIDC_ISSUER",
-                    "client_id": "OIDC_CLIENT_ID",
-                    "client_secret": "OIDC_CLIENT_SECRET",
-                    "client_secret_file": "OIDC_CLIENT_SECRET_FILE",
-                    "redirect_uri": "OIDC_REDIRECT_URI",
-                },
-            }
+            auth_values = cast(dict[str, object], auth)
             for section_name, key_mapping in nested_auth.items():
-                section = auth.get(section_name)
-                if isinstance(section, dict):
-                    for key, field_name in key_mapping.items():
-                        if key in section:
-                            normalized.setdefault(field_name, section[key])
+                cls._copy_section_values(
+                    normalized,
+                    auth_values.get(section_name),
+                    key_mapping,
+                )
         return normalized
 
-    @classmethod
-    def settings_customise_sources(
-        cls,
-        settings_cls: type[BaseSettings],
-        init_settings: PydanticBaseSettingsSource,
-        env_settings: PydanticBaseSettingsSource,
-        dotenv_settings: PydanticBaseSettingsSource,
-        file_secret_settings: PydanticBaseSettingsSource,
-    ) -> tuple[PydanticBaseSettingsSource, ...]:
-        """Place environment variables before the YAML configuration.
-
-        :param settings_cls: The settings class being configured.
-        :type settings_cls: type[BaseSettings]
-        :param init_settings: Values passed directly to the settings constructor.
-        :type init_settings: PydanticBaseSettingsSource
-        :param env_settings: Values loaded from environment variables.
-        :type env_settings: PydanticBaseSettingsSource
-        :param dotenv_settings: Values loaded from an optional dotenv file.
-        :type dotenv_settings: PydanticBaseSettingsSource
-        :param file_secret_settings: Values loaded from Pydantic secret files.
-        :type file_secret_settings: PydanticBaseSettingsSource
-        :returns: Settings sources ordered from highest to lowest priority.
-        :rtype: tuple[PydanticBaseSettingsSource, ...]
-
-        .. note::
-            Constructor arguments and environment variables override YAML values.
-        """
-        config_file = os.environ.get(
-            "TTL_LAMA_CONFIG_FILE",
-            "/etc/ttl-lama/config.yml",
-        )
-        yaml_settings = YamlConfigSettingsSource(
-            settings_cls,
-            yaml_file=config_file,
-        )
-        return (
-            init_settings,
-            env_settings,
-            yaml_settings,
-            dotenv_settings,
-            file_secret_settings,
-        )
+    @staticmethod
+    def _copy_section_values(
+        normalized: dict[str, object],
+        section: object,
+        key_mapping: dict[str, str],
+    ) -> None:
+        if not isinstance(section, dict):
+            return
+        section_values = cast(dict[str, object], section)
+        for key, field_name in key_mapping.items():
+            if key in section_values:
+                normalized.setdefault(field_name, section_values[key])
 
     def _validate_cookie_names(self) -> None:
         """Validate the names of the authentication and session cookies.
@@ -296,62 +195,74 @@ class Settings(BaseSettings):
         """
         self._validate_cookie_names()
         self._validate_flask_cookie_settings()
-        self.SECRET_KEY = self._read_secret(
+        self._resolve_authentication_secrets()
+        is_production = self.model_dump()["FLASK_ENV"].lower() == "production"
+        self._validate_environment(is_production)
+        if self.AUTH_MODE == "external":
+            self._validate_oidc_configuration(is_production)
+        return self
+
+    def _resolve_authentication_secrets(self) -> None:
+        setattr(
+            self,
             "SECRET_KEY",
-            self.SECRET_KEY,
-            self.SECRET_KEY_FILE,
+            self._read_secret("SECRET_KEY", self.SECRET_KEY, self.SECRET_KEY_FILE),
         )
         if self.AUTH_MODE == "internal":
-            self.ADMIN_PASSWORD = self._read_secret(
+            setattr(
+                self,
                 "ADMIN_PASSWORD",
-                self.ADMIN_PASSWORD,
-                self.ADMIN_PASSWORD_FILE,
+                self._read_secret(
+                    "ADMIN_PASSWORD",
+                    self.ADMIN_PASSWORD,
+                    self.ADMIN_PASSWORD_FILE,
+                ),
             )
         else:
-            self.OIDC_CLIENT_SECRET = self._read_secret(
+            setattr(
+                self,
                 "OIDC_CLIENT_SECRET",
-                self.OIDC_CLIENT_SECRET,
-                self.OIDC_CLIENT_SECRET_FILE,
+                self._read_secret(
+                    "OIDC_CLIENT_SECRET",
+                    self.OIDC_CLIENT_SECRET,
+                    self.OIDC_CLIENT_SECRET_FILE,
+                ),
             )
         if len(self.SECRET_KEY) < 32:
             raise ValueError("SECRET_KEY doit contenir au moins 32 caractères")
-        if self.FLASK_ENV.lower() == "production" and self.DEBUG:
+
+    def _validate_environment(self, is_production: bool) -> None:
+        if is_production and self.DEBUG:
             raise ValueError("DEBUG doit être désactivé en production")
-        if self.FLASK_ENV.lower() == "production" and not self.ENFORCE_SECURE_CONNECTION:
+        if is_production and not self.ENFORCE_SECURE_CONNECTION:
             raise ValueError(
                 "ENFORCE_SECURE_CONNECTION doit être activé en production"
             )
-        if self.AUTH_MODE == "external":
-            required = (
-                self.OIDC_ISSUER,
-                self.OIDC_CLIENT_ID,
-                self.OIDC_CLIENT_SECRET,
-                self.OIDC_REDIRECT_URI,
-            )
-            if not all(required):
-                raise ValueError("La configuration OIDC est incomplete")
-            issuer = urlparse(self.OIDC_ISSUER)
-            if (
-                not issuer.netloc
-                or issuer.scheme not in {"http", "https"}
-                or (
-                    self.FLASK_ENV.lower() == "production"
-                    and issuer.scheme != "https"
-                )
-            ):
-                raise ValueError("OIDC_ISSUER doit être une URL HTTPS en production")
-            redirect = urlparse(self.OIDC_REDIRECT_URI)
-            if (
-                redirect.scheme not in {"http", "https"}
-                or not redirect.netloc
-                or redirect.path != "/auth/callback"
-                or (
-                    self.FLASK_ENV.lower() == "production"
-                    and redirect.scheme != "https"
-                )
-            ):
-                raise ValueError("OIDC_REDIRECT_URI doit pointer vers /auth/callback")
-        return self
+
+    def _validate_oidc_configuration(self, is_production: bool) -> None:
+        required = (
+            self.OIDC_ISSUER,
+            self.OIDC_CLIENT_ID,
+            self.OIDC_CLIENT_SECRET,
+            self.OIDC_REDIRECT_URI,
+        )
+        if not all(required):
+            raise ValueError("La configuration OIDC est incomplete")
+        issuer = urlparse(self.OIDC_ISSUER)
+        if (
+            not issuer.netloc
+            or issuer.scheme not in {"http", "https"}
+            or (is_production and issuer.scheme != "https")
+        ):
+            raise ValueError("OIDC_ISSUER doit être une URL HTTPS en production")
+        redirect = urlparse(self.OIDC_REDIRECT_URI)
+        if (
+            redirect.scheme not in {"http", "https"}
+            or not redirect.netloc
+            or redirect.path != "/auth/callback"
+            or (is_production and redirect.scheme != "https")
+        ):
+            raise ValueError("OIDC_REDIRECT_URI doit pointer vers /auth/callback")
 
     @staticmethod
     def _read_secret(name: str, value: str, secret_file: Path | None) -> str:

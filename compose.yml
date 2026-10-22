@@ -1,0 +1,17 @@
+services:
+  ttl-lama:
+    build:
+      context: .
+      dockerfile: src/Dockerfile
+      target: runtime
+    env_file:
+      - .env
+    ports:
+      - "8080:8080"
+    volumes:
+      - ttl_lama_data:/data
+      - ./secrets:/run/secrets:ro
+    restart: unless-stopped
+
+volumes:
+  ttl_lama_data:

@@ -1,7 +1,9 @@
+"""Tests for authentication functionality."""
 from __future__ import annotations
 
 import hashlib
 from datetime import datetime, timedelta, timezone
+from typing import cast
 
 import pytest
 from flask import Flask
@@ -12,7 +14,7 @@ from werkzeug.test import TestResponse
 from api.common.db_objects.users import User as DatabaseUser
 from api.common.db_objects.users import UserSession
 from auth.decorators import require_group
-from auth.models import User
+from auth.models import User, UserUpdate
 
 
 def _csrf_token(client: FlaskClient) -> str:
@@ -39,6 +41,7 @@ def test_internal_login_accepts_valid_credentials_and_rejects_invalid(
     app: Flask,
     login_admin: tuple[str, str],
 ) -> None:
+    """Test that internal login accepts valid credentials and rejects invalid ones."""
     client = app.test_client()
     csrf_token = _csrf_token(client)
     username, password = login_admin
@@ -57,14 +60,16 @@ def test_disabled_user_cannot_authenticate(
     app: Flask,
     login_admin: tuple[str, str],
 ) -> None:
+    """Test that a disabled user cannot authenticate."""
     manager = app.extensions["auth_manager"]
     admin_id = manager.users.db_session().scalar(
         select(DatabaseUser.id).where(
-            DatabaseUser.username == app.config["TEST_ADMIN_USERNAME"]
+            DatabaseUser.username
+            == cast(str, app.config["TEST_ADMIN_USERNAME"])
         )
     )
     assert admin_id is not None
-    manager.users.update_user(admin_id, enabled=False)
+    manager.users.update_user(UserUpdate(user_id=admin_id, enabled=False))
 
     client = app.test_client()
     response = _login(client, *login_admin, csrf_token=_csrf_token(client))
@@ -76,6 +81,7 @@ def test_session_is_hashed_expires_and_can_be_revoked(
     app: Flask,
     login_admin: tuple[str, str],
 ) -> None:
+    """Test that a session is hashed, expires correctly, and can be revoked."""
     client = app.test_client()
     csrf_token = _csrf_token(client)
     assert _login(client, *login_admin, csrf_token=csrf_token).status_code == 200
@@ -113,6 +119,7 @@ def test_login_lockout_follows_repeated_failures(
     app: Flask,
     login_admin: tuple[str, str],
 ) -> None:
+    """Test that repeated failed login attempts trigger a lockout."""
     client = app.test_client()
     csrf_token = _csrf_token(client)
     username, password = login_admin
@@ -127,6 +134,8 @@ def test_group_authorization_returns_401_and_403(
     app: Flask,
     login_admin: tuple[str, str],
 ) -> None:
+    """Test that group-based authorization returns 401 for unauthenticated users
+    and 403 for unauthorized users."""
     def admin_route() -> tuple[dict[str, str], int]:
         return {"status": "ok"}, 200
 
@@ -163,6 +172,7 @@ def test_csrf_is_required_for_login_and_logout(
     app: Flask,
     login_admin: tuple[str, str],
 ) -> None:
+    """Test that CSRF protection is enforced for login and logout endpoints."""
     client = app.test_client()
     assert _login(client, *login_admin).status_code == 400
     csrf_token = _csrf_token(client)
@@ -179,6 +189,7 @@ def test_oidc_callback_success_and_invalid_callback(
     app: Flask,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    """Test the OIDC callback for both successful and invalid authentication."""
     manager = app.extensions["auth_manager"]
     manager.mode = "external"
     user = User(

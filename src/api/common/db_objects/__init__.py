@@ -4,14 +4,13 @@
     - `Base`: base class for all database objects.
 
 .. constants::
-    - `TABLE_SCHEMA_TOKEN`: Logical schema name translated for each database dialect.
-    - `TABLE_ARGS`: Default table arguments applying the logical schema.
+    - `TABLE_ARGS`: Table arguments built from the configured PostgreSQL schema.
 
 .. functions::
     - `foreign_key_target(table_name: str, column_name: str = "id") -> str`: Constructs a
-    schema-qualified foreign key reference compatible with the active schema.
+    foreign key reference compatible with the configured schema.
     - `table_key(table_name: str) -> str`: Returns the metadata key of a table according to
-    the active schema.
+    the configured schema.
 
 .. module_author:: Rémi Verschuur <rverschuur@audit-io.fr>
 .. version:: 1.0
@@ -23,9 +22,17 @@ from typing import Any
 
 from sqlalchemy.orm import DeclarativeBase
 
+from api.config.c_databases import DbType, Settings as DatabaseSettings
+
 LOGGER = logging.getLogger(__name__)
-TABLE_SCHEMA_TOKEN = "ttl_lama"
-TABLE_ARGS: dict[str, Any] = {"schema": TABLE_SCHEMA_TOKEN}
+_database_settings = DatabaseSettings()
+TABLE_ARGS: dict[str, Any] = (
+    {"schema": _database_settings.DB_SCHEMA}
+    if _database_settings.DB_TYPE == DbType.POSTGRESQL
+    else {}
+)
+_TABLE_SCHEMA = TABLE_ARGS.get("schema")
+del _database_settings
 
 
 def foreign_key_target(table_name: str, column_name: str = "id") -> str:
@@ -49,7 +56,7 @@ def table_key(table_name: str) -> str:
     :returns: The metadata key of the table.
     :rtype: str
     """
-    return f"{TABLE_SCHEMA_TOKEN}.{table_name}"
+    return f"{_TABLE_SCHEMA}.{table_name}" if _TABLE_SCHEMA else table_name
 
 class Base(DeclarativeBase):
     """Base class for all database objects.
