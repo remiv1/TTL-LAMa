@@ -22,24 +22,35 @@ Les deux modes produisent une identité utilisable par le cœur métier. La logi
 L’authentification interne peut utiliser n’importe quel backend de persistance pris en charge. Par exemple :
 
 ```yaml
-authentication:
+auth:
   mode: internal
+  admin:
+    username: admin
+    password_file: /run/secrets/admin_password
 
 database:
-  driver: sqlite
+  type: sqlite
   path: /data/ttl-lama.db
 ```
 
 L’authentification externe se configure indépendamment :
 
 ```yaml
-authentication:
+auth:
   mode: external
-
   oidc:
     issuer: https://identity.example.org
     client_id: ttl-lama
     client_secret_file: /run/secrets/oidc_client_secret
+    redirect_uri: https://ttl-lama.example.org/auth/callback
+
+database:
+  type: postgresql
+  host: postgres
+  name: ttl_lama
+  user: ttl_lama
+  password_file: /run/secrets/database_password
+  schema: public
 ```
 
 Le fournisseur d’identité répond à la question **qui est l’utilisateur**. TTL-LAMa détermine à quoi il peut accéder, depuis quel appareil et pendant combien de temps.
@@ -55,21 +66,21 @@ Un bail s’applique à un appareil déterminé et non simplement à un utilisat
 Un profil d’accès est une politique définie par l’administrateur. Les utilisateurs choisissent parmi les profils qui leur sont autorisés ; ils ne peuvent pas fournir arbitrairement des réseaux ou des règles d’accès.
 
 ```yaml
-access_profiles:
+profiles:
   server-admin:
-    duration:
-      default: 2h
-      maximum: 8h
+    default_duration: 2h
+    maximum_duration: 8h
     networks:
       - 192.168.10.0/24
 
   maintenance:
-    duration:
-      default: 30m
-      maximum: 2h
+    default_duration: 30m
+    maximum_duration: 2h
     networks:
       - 192.168.10.10/32
 ```
+
+Ce document correspond au fichier `/etc/ttl-lama/access-profiles.yml`; les options du service sont définies dans `/etc/ttl-lama/config.yml`.
 
 ### Bail d’accès
 
@@ -112,11 +123,11 @@ L’authentification et la persistance sont deux choix indépendants :
 | Authentification | Persistance | Usage typique |
 | --- | --- | --- |
 | `internal` | SQLite | Installation autonome |
-| `internal` | PostgreSQL | Installation autonome avec base externe |
+| `internal` | PostgreSQL / MariaDB / MySQL | Installation autonome avec base externe |
 | `external` / OIDC | SQLite | Fournisseur d’identité existant et déploiement léger |
-| `external` / OIDC | PostgreSQL | Infrastructure intégrée |
+| `external` / OIDC | PostgreSQL / MariaDB / MySQL | Infrastructure intégrée |
 
-SQLite est le backend prévu par défaut pour une installation autonome.
+SQLite est le backend prévu par défaut pour une installation autonome. Les moteurs SQL externes pris en charge sont PostgreSQL, MariaDB et MySQL.
 
 ### Backend d’accès
 

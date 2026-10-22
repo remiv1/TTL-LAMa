@@ -28,6 +28,14 @@ Each profile should provide only the access required for its intended use. For e
 
 Having VPN access does not necessarily mean having access to the entire private network.
 
+## Application Baseline
+
+In production, configuration must provide a Flask key of at least 32 characters and enable `Secure` cookies. Authentication is mandatory and must use either the internal account store or an external identity provider. Session cookies are `HttpOnly` and `SameSite=Lax`; state-changing requests are protected against CSRF.
+
+Secrets may be mounted under `/run/secrets/` and referenced through `_FILE` settings. They must not appear in logs or in the image. Persisted session tokens are stored as digests.
+
+The container runs without root privileges. Changing the authentication mode or issuer does not automatically delete existing accounts; it requires an explicit migration.
+
 ## Automatic Revocation
 
 Expiration is an invariant of the security model. An expired lease must not merely appear as `EXPIRED` in the application; it must result in:

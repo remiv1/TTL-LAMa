@@ -128,23 +128,20 @@ class User(Base):
         :return: Dictionary representation of the User object.
         :rtype: dict[str, Any]
 
-        .. notes::
+        .. note::
             The `without_secrets` parameter controls whether sensitive information like the
             hashed password is included in the dictionary representation. The default value
             is `True`, meaning sensitive information is excluded by default.
 
-            :example:
-            ```python
-            user = User.from_dict({
-                "id": 1,
-                "username": "john_doe",
-                "email": "john@example.com",
-                "hash_password": "hashed_password"
-            })
-            print(user.to_dict())
+            .. code-block:: python
 
-            >>> {'id': 1, 'username': 'john_doe', 'email': 'john@example.com'}
-            ```
+                user = User.from_dict({
+                    "id": 1,
+                    "username": "john_doe",
+                    "email": "john@example.com",
+                    "hash_password": "hashed_password",
+                })
+                print(user.to_dict())
         """
         user_dict = {
             "id": self.id,
@@ -166,13 +163,13 @@ class User(Base):
         :return: User object created from the dictionary.
         :rtype: User
 
-        .. notes::
+        .. note::
             The `without_secrets` parameter controls whether sensitive information like the
             hashed password is expected in the input dictionary. The default value is `True`,
             meaning sensitive information is not expected by default.
 
-            :example:
-                ```python
+            .. code-block:: python
+
                 data = {
                     "id": 1,
                     "username": "john_doe",
@@ -182,10 +179,7 @@ class User(Base):
                 user = User.from_dict(data)
                 print(user.to_dict())
 
-                >>> {'id': 1, 'username': 'john_doe', 'email': 'john@example.com'}
-
                 user.hash_password = personalized_hasher("value_of_password")
-                ```
         """
         return cls(
             id=data.get("id"),

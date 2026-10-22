@@ -11,7 +11,7 @@ from __future__ import annotations
 import logging
 from typing import Literal
 
-from flask import Flask, current_app
+from flask import Flask, Response, current_app
 from sqlalchemy.orm import Session, scoped_session
 
 from auth.backends import AuthBackend, InternalAuthBackend
@@ -19,13 +19,11 @@ from auth.models import User
 from auth.services import SessionService, UserService
 from api.config import FlaskSettings
 
-AuthMode = Literal["none", "internal", "external"]
+AuthMode = Literal["internal", "external"]
 LOGGER = logging.getLogger(__name__)
 
 class AuthManager:
-    """Give a configured backend to the application.
-    This class is responsible for selecting and orchestrating the appropriate authentication backend
-    based on the application's configuration.
+    """Select and orchestrate the backend configured for the application.
 
     :param app: The Flask application instance.
     :type app: Flask
@@ -46,7 +44,7 @@ class AuthManager:
         - `_create_backend`: Internal method to create the appropriate authentication backend
         based on the current mode.
 
-    .. author: Rémi Verschuur <rverschuur@audit-io.fr>
+    .. author:: Rémi Verschuur <rverschuur@audit-io.fr>
     .. version:: 1.0.0
     """
 
@@ -90,7 +88,11 @@ class AuthManager:
     ) -> None:
         """Creates the initial groups and administrator when necessary.
 
-        :return: None
+        :param db_session: Scoped SQLAlchemy session used for initialization.
+        :type db_session: scoped_session[Session]
+        :param settings: Validated application settings.
+        :type settings: FlaskSettings
+        :returns: ``None``.
         :rtype: None
         """
         service = UserService(db_session)
@@ -98,78 +100,78 @@ class AuthManager:
             settings.AUTH_MODE,
             settings.OIDC_ISSUER if settings.AUTH_MODE == "external" else None,
         )
-        service.ensure_identity_records()
         if settings.AUTH_MODE == "internal":
+            service.ensure_identity_records()
             service.ensure_initial_admin(settings.ADMIN_USERNAME, settings.ADMIN_PASSWORD)
         elif settings.AUTH_MODE == "external":
             service.ensure_groups()
+            service.ensure_identity_records()
         service.ensure_login_states()
 
     def authenticate(
         self,
         credentials: dict[str, object] | None = None,
-    ) -> tuple[User, str | None] | None:
-        """Authenticates and creates a persistent session if the mode requires it.
+    ) -> tuple[User, str] | None:
+        """Authenticate credentials and create a persistent session on success.
 
         :param credentials: The credentials provided for authentication.
         :type credentials: dict[str, object] | None
 
-        :return: A tuple containing the authenticated user and the session token,
-        or None if authentication fails.
-        :rtype: tuple[User, str | None] | None
+        :returns: The authenticated user and session token, or ``None`` on failure.
+        :rtype: tuple[User, str] | None
         """
         user = self.backend.authenticate(credentials)
         if user is None:
-            log_credentials = {
-                key: ("***" if key.lower() == "password" else value)
-                for key, value in credentials.items()
-            } if credentials else None
-            LOGGER.warning("Authentication failed for credentials: %s", log_credentials)
+            LOGGER.warning("Authentication failed")
             return None
-        token = self.sessions.create(int(user.id)) if self.mode != "none" else None
+        token = self.sessions.create(int(user.id))
         return user, token
 
     def complete_login(self) -> tuple[User, str]:
-        """Completes the OIDC login process and creates a TTL-LAMa session.
+        """Complete OIDC authentication and create a TTL-LAMa session.
 
-        :return: A tuple containing the authenticated user and the session token.
+        :returns: The authenticated user and its session token.
         :rtype: tuple[User, str]
         """
         user = self.backend.complete_login()
         return user, self.sessions.create(int(user.id))
 
     def get_current_user(self, session_token: str | None = None) -> User | None:
-        """Retrieves the currently authenticated user via the chosen backend.
+        """Retrieve the current user through the configured backend.
 
         :param session_token: The session token associated with the user's session.
         :type session_token: str | None
 
-        :return: The currently authenticated user, or None if no user is associated
-        with the session token.
+        :returns: The current user, or ``None`` when the token has no valid identity.
         :rtype: User | None
         """
         return self.backend.get_current_user(session_token)
 
     def logout(self, session_token: str | None = None) -> None:
-        """Logs out the current session.
+        """Log out the current session.
 
         :param session_token: The session token associated with the user's session.
         :type session_token: str | None
 
-        :return: None
+        :returns: ``None``.
         :rtype: None
         """
         self.backend.logout(session_token)
 
-    def begin_login(self):
-        """Initiates an interactive login flow when supported.
+    def begin_login(self) -> Response | None:
+        """Start an interactive login flow when supported.
 
-        :return: A Flask response object that redirects the user to the OIDC provider's login page.
-        :rtype: Response
+        :returns: A redirect response for external authentication, if supported.
+        :rtype: Response | None
         """
         return self.backend.begin_login()
 
     def _create_backend(self) -> AuthBackend:
+        """Instantiate the backend matching the configured authentication mode.
+
+        :returns: The configured authentication backend.
+        :rtype: AuthBackend
+        """
         if self.mode == "internal":
             return InternalAuthBackend(self.users, self.sessions)
         from auth.backends.oidc import OIDCAuthBackend, OIDCConfig  # pylint: disable=C0415

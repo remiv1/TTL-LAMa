@@ -1,0 +1,63 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: ttl_lama_test
+      POSTGRES_USER: ttl_lama_test
+      POSTGRES_PASSWORD: test-only-password
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ttl_lama_test -d ttl_lama_test"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  mariadb:
+    image: mariadb:11.4
+    environment:
+      MARIADB_DATABASE: ttl_lama_test
+      MARIADB_ROOT_PASSWORD: test-only-password
+      MARIADB_ROOT_HOST: "%"
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "healthcheck.sh --connect --innodb_initialized",
+        ]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+
+  mysql:
+    image: mysql:8.4
+    environment:
+      MYSQL_DATABASE: ttl_lama_test
+      MYSQL_ROOT_PASSWORD: test-only-password
+      MYSQL_ROOT_HOST: "%"
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "mysqladmin ping -h 127.0.0.1 -uroot -ptest-only-password",
+        ]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+
+  tests:
+    build:
+      context: .
+      dockerfile: src/Dockerfile
+      target: test
+    environment:
+      TTL_LAMA_TEST_DATABASES: sqlite,postgresql,mariadb,mysql
+      TTL_LAMA_TEST_POSTGRESQL_URL: postgresql+psycopg://ttl_lama_test:test-only-password@postgres:5432/ttl_lama_test
+      TTL_LAMA_TEST_MARIADB_URL: mariadb+pymysql://root:test-only-password@mariadb:3306/ttl_lama_test
+      TTL_LAMA_TEST_MYSQL_URL: mysql+pymysql://root:test-only-password@mysql:3306/ttl_lama_test
+    depends_on:
+      postgres:
+        condition: service_healthy
+      mariadb:
+        condition: service_healthy
+      mysql:
+        condition: service_healthy
+    command: ["python", "-m", "pytest", "-q", "-p", "no:cacheprovider"]

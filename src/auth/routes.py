@@ -1,11 +1,11 @@
 """REST routes of the authentication session lifecycle.
 
 .. routes::
-    - `/auth/csrf`: Retourne un jeton CSRF pour les clients utilisant les sessions cookie.
-    - `/auth/me`: Expose l'identite uniforme liee a la requete.
-    - `/auth/login`: Demarre OIDC ou authentifie un utilisateur interne.
-    - `/auth/callback`: Finalise le flux OIDC et cree une session TTL-LAMa.
-    - `/auth/logout`: Revoque la session courante et supprime son cookie.
+    - `/auth/csrf`: Return a CSRF token for cookie-based clients.
+    - `/auth/me`: Return the uniform identity associated with the request.
+    - `/auth/login`: Start OIDC or authenticate an internal user.
+    - `/auth/callback`: Complete OIDC and create a TTL-LAMa session.
+    - `/auth/logout`: Revoke the current session and delete its cookie.
 
 .. module_author:: Rémi Verschuur <rverschuur@audit-io.fr>
 .. version:: 1.0.0
@@ -78,8 +78,6 @@ def login() -> Response | tuple[Response, int]:
             if response is not None:
                 return response
         return jsonify(error="Interactive login is not available in this mode"), 405
-    if manager.mode == "none":
-        return jsonify(error="Login is disabled in none mode"), 405
     if manager.mode == "external":
         return jsonify(error="Use GET /auth/login for OIDC authentication"), 405
     credentials = request.get_json(silent=True)
@@ -94,16 +92,15 @@ def login() -> Response | tuple[Response, int]:
         return jsonify(error="Invalid username or password"), 401
     user, token = result
     response = make_response(jsonify(user=user.to_dict()))
-    if token is not None:
-        response.set_cookie(
-            manager.settings.AUTH_COOKIE_NAME,
-            token,
-            max_age=int(manager.sessions.lifetime.total_seconds()),
-            httponly=True,
-            secure=manager.settings.ENFORCE_SECURE_CONNECTION,
-            samesite="Lax",
-            path="/",
-        )
+    response.set_cookie(
+        manager.settings.AUTH_COOKIE_NAME,
+        token,
+        max_age=int(manager.sessions.lifetime.total_seconds()),
+        httponly=True,
+        secure=manager.settings.ENFORCE_SECURE_CONNECTION,
+        samesite="Lax",
+        path="/",
+    )
     return response
 
 

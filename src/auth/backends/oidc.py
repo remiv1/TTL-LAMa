@@ -44,33 +44,25 @@ class OIDCConfig:
 
 
 class OIDCAuthBackend(AuthBackend):
-    """Handles authentication via an OpenID Connect provider.
-    
+    """Authenticate users through an OpenID Connect provider.
+
     :param app: The Flask application instance.
     :type app: Flask
+    :param config: The issuer, client credentials, and redirect configuration.
     :type config: OIDCConfig
     :param user_service: The service managing user data.
     :type user_service: UserService
     :param session_service: The service managing session data.
     :type session_service: SessionService
-    :param user_service: The service managing user data.
-    :type user_service: UserService
-    :param session_service: The service managing session data.
-    :type session_service: SessionService
-
-    :raises ValueError: If the OIDC provider does not return a user profile.
-
-    :return: The authenticated user.
-    :rtype: User
 
     .. methods::
-        - `authenticate`: Authenticates a user based on provided credentials.
-        - `begin_login`: Initiates the login process by redirecting to the OIDC provider.
-        - `complete_login`: Completes the login process and returns the authenticated user.
-        - `get_current_user`: Retrieves the currently authenticated user based on the session token.
-        - `logout`: Logs out the user by deleting the session token.
+        - `authenticate`: Reject password authentication in OIDC mode.
+        - `begin_login`: Redirect to the OIDC provider.
+        - `complete_login`: Exchange the authorization code and resolve the user.
+        - `get_current_user`: Resolve the identity associated with a session token.
+        - `logout`: Revoke the session associated with a token.
 
-    .. author: Rémi Verschuur <rverschuur@audit-io.fr>
+    .. author:: Rémi Verschuur <rverschuur@audit-io.fr>
     .. version:: 1.0.0
     """
 
@@ -81,12 +73,11 @@ class OIDCAuthBackend(AuthBackend):
         user_service: UserService,
         session_service: SessionService,
     ) -> None:
-        """Initializes the OIDC authentication backend with the given configuration and services.
+        """Initialize the backend with OIDC configuration and persistence services.
 
         :param app: The Flask application instance.
         :type app: Flask
-        :param config: The OIDC configuration object containing issuer, client ID, client secret,
-        and redirect URI.
+        :param config: The issuer, client credentials, and redirect URI.
         :type config: OIDCConfig
         :param user_service: The service managing user data.
         :type user_service: UserService
@@ -110,31 +101,32 @@ class OIDCAuthBackend(AuthBackend):
         self.user_service = user_service
         self.session_service = session_service
 
-    def authenticate(self, credentials: dict[str, object] | None = None) -> None:
-        """Authenticates a user based on provided credentials.
+    def authenticate(self, credentials: dict[str, object] | None = None) -> User | None:
+        """Reject password authentication because OIDC uses a redirect flow.
 
         :param credentials: The credentials provided for authentication.
         :type credentials: dict[str, object] | None
 
-        :return: None
+        :returns: ``None`` because credentials are not accepted in OIDC mode.
+        :rtype: None
         """
         del credentials
         LOGGER.debug("Authenticate called with OIDCAuthBackend")
+        return None
 
     def begin_login(self) -> Response:
-        """Initiates the login process by redirecting to the OIDC provider.
+        """Redirect the user to the OIDC provider.
 
-        :return: A Flask response object that redirects the user to the OIDC provider's login page.
+        :returns: The provider authorization redirect response.
         :rtype: Response
         """
         LOGGER.debug("Beginning login with OIDCAuthBackend")
         return self.client.authorize_redirect(self.redirect_uri)
 
     def complete_login(self) -> User:
-        """Completes the login process by exchanging the authorization code for an access token
-        and retrieving the user profile.
+        """Exchange the authorization code and retrieve the authenticated user profile.
 
-        :return: The authenticated user.
+        :returns: The synchronized TTL-LAMa user identity.
         :rtype: User
         :raises ValueError: If the OIDC provider does not return a user profile.
         """
@@ -144,37 +136,31 @@ class OIDCAuthBackend(AuthBackend):
             claims = self.client.userinfo(token=token)
         if claims is None:
             LOGGER.exception("No user profile returned by OIDC provider")
-            raise ValueError("Le fournisseur OIDC n'a pas retourne de profil utilisateur")
-        LOGGER.debug("User profile retrieved from OIDC provider: %s", claims)
+            raise ValueError("The OIDC provider did not return a user profile")
+        LOGGER.debug("User profile retrieved from OIDC provider")
         return self.user_service.sync_external_user(self.issuer, claims)
 
     def get_current_user(self, session_token: str | None = None) -> User | None:
-        """Retrieves the currently authenticated user based on the session token.
+        """Resolve the identity associated with a session token.
 
         :param session_token: The session token associated with the user's session.
         :type session_token: str | None
 
-        :return: The currently authenticated user, or None if no user is associated
-        with the session token.
+        :returns: The current user, or ``None`` when the token is invalid or expired.
         :rtype: User | None
         """
-        LOGGER.debug(
-            "Retrieving current user with OIDCAuthBackend for session token: %s",
-            session_token,
-        )
+        LOGGER.debug("Retrieving current user with OIDCAuthBackend")
         user_id = self.session_service.get_user_id(session_token)
         return self.user_service.get(user_id) if user_id is not None else None
 
     def logout(self, session_token: str | None = None) -> None:
-        """Logs out the user by deleting the session token.
+        """Revoke the session associated with a token.
 
         :param session_token: The session token associated with the user's session.
         :type session_token: str | None
 
-        :return: None
+        :returns: ``None``.
+        :rtype: None
         """
-        LOGGER.debug(
-            "Logging out with OIDCAuthBackend for session token: %s",
-            session_token,
-        )
+        LOGGER.debug("Logging out with OIDCAuthBackend")
         self.session_service.delete(session_token)

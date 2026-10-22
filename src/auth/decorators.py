@@ -49,11 +49,21 @@ def require_auth(view: Callable[..., Any]) -> Callable[..., Any]:
     :return: The decorated view function.
     :rtype: Callable[..., Any]
 
-    :raises 401: If no user is authenticated.
+    :raises werkzeug.exceptions.Unauthorized: If no user is authenticated.
     """
 
     @wraps(view)
     def wrapped(*args: Any, **kwargs: Any) -> Any:
+        """Require a current user before invoking the decorated view.
+
+        :param args: Positional arguments passed to the view.
+        :type args: Any
+        :param kwargs: Keyword arguments passed to the view.
+        :type kwargs: Any
+        :returns: The decorated view's result.
+        :rtype: Any
+        :raises werkzeug.exceptions.Unauthorized: If no user is authenticated.
+        """
         if get_current_user() is None:
             abort(401)
         return view(*args, **kwargs)
@@ -62,7 +72,7 @@ def require_auth(view: Callable[..., Any]) -> Callable[..., Any]:
 
 
 def require_group(group: str) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
-    """Refuse the request if the user does not have the required group.
+    """Reject requests from users who lack the required group.
 
     :param group: The required group for the route.
     :type group: str
@@ -75,8 +85,27 @@ def require_group(group: str) -> Callable[[Callable[..., Any]], Callable[..., An
     """
 
     def decorate(view: Callable[..., Any]) -> Callable[..., Any]:
+        """Wrap a view with the group authorization check.
+
+        :param view: The route function to decorate.
+        :type view: Callable[..., Any]
+        :returns: The decorated route function.
+        :rtype: Callable[..., Any]
+        """
+
         @wraps(view)
         def wrapped(*args: Any, **kwargs: Any) -> Any:
+            """Require authentication and membership before invoking the view.
+
+            :param args: Positional arguments passed to the view.
+            :type args: Any
+            :param kwargs: Keyword arguments passed to the view.
+            :type kwargs: Any
+            :returns: The decorated view's result.
+            :rtype: Any
+            :raises werkzeug.exceptions.Unauthorized: If no user is authenticated.
+            :raises werkzeug.exceptions.Forbidden: If the user lacks the required group.
+            """
             user = get_current_user()
             if user is None:
                 abort(401)

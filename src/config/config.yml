@@ -1,0 +1,32 @@
+app:
+  environment: production
+  debug: false
+  secret_key_file: /run/secrets/flask_secret_key
+  log_level: info
+
+server:
+  host: 0.0.0.0
+  port: 8080
+
+auth:
+  mode: internal
+  cookie_name: ttl-lama_session
+  admin:
+    username: admin
+    password_file: /run/secrets/admin_password
+
+database:
+  type: sqlite
+  path: /data/ttl-lama.db
+  schema: public
+
+security:
+  enforce_secure_connection: true
+  session_cookie_name: session
+  session_cookie_httponly: true
+  session_cookie_secure: true
+  session_cookie_samesite: Lax
+  session_cookie_path: /
+
+access_profiles:
+  file: /etc/ttl-lama/access-profiles.yml

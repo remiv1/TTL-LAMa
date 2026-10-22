@@ -98,14 +98,14 @@ class SessionService:
             select(UserSession).where(UserSession.session_token == self._digest(token))
         )
         if record is None:
-            LOGGER.debug("Session not found for token: %s", token)
+            LOGGER.debug("Session not found")
             return None
         expires_at = record.expires_at
         if expires_at.tzinfo is None:
-            LOGGER.debug("Session expiration time had no timezone info, assuming UTC for token.")
+            LOGGER.debug("Session expiration time had no timezone info, assuming UTC")
             expires_at = expires_at.replace(tzinfo=timezone.utc)
         if expires_at <= datetime.now(timezone.utc):
-            LOGGER.debug("Session expired for token: %s", token)
+            LOGGER.debug("Session expired")
             session.delete(record)
             self._commit(session)
             return None
@@ -126,7 +126,7 @@ class SessionService:
         stmt = select(UserSession).where(UserSession.session_token == self._digest(token))
         record = session.scalar(stmt)
         if record is not None:
-            LOGGER.debug("Deleting session for token: %s", token)
+            LOGGER.debug("Deleting session")
             session.delete(record)
             self._commit(session)
 
@@ -140,7 +140,6 @@ class SessionService:
         :return: The SHA-256 hash of the token.
         :rtype: str
         """
-        LOGGER.debug("Digesting token.")
         return hashlib.sha256(token.encode("utf-8")).hexdigest()
 
     @staticmethod

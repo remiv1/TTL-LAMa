@@ -1,4 +1,4 @@
-"""Internal authentication backend for GeoReforge's internal database.
+"""Internal authentication backend for the TTL-LAMa database.
 
 .. classes::
     - `InternalAuthBackend`: Authenticate users against the internal database.

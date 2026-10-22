@@ -7,15 +7,9 @@
 .. module_author:: Rémi Verschuur <rverschuur@audit-io.fr>
 .. version:: 1.0.0
 
-.. notes::
-    Authentication in TTL-LAMa may have three sources: "none", "internal", and "external".
-
-    - `none`: No authentication is required, the application use a fake or dummy user identity.
-    This format is used in small or local application and development environments.
-    - `internal`: Authentication is managed internally by the application, typically using a
-    local database of user credentials.
-    - `external`: Authentication is delegated to an external system, such as an OAuth provider
-    or an LDAP server.
+.. note::
+    Authentication is always required. It is managed internally or delegated to an
+    external identity provider.
 """
 from __future__ import annotations
 

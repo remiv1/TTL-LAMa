@@ -53,12 +53,32 @@ _Result = TypeVar("_Result")
 def _rollback_on_error(
     operation: Callable[Concatenate[UserService, _Params], _Result],
 ) -> Callable[Concatenate[UserService, _Params], _Result]:
+    """Retry once after an integrity conflict and roll back failed operations.
+
+    :param operation: A user-service operation that manages a transaction.
+    :type operation: Callable[Concatenate[UserService, _Params], _Result]
+    :returns: A wrapped operation with rollback handling.
+    :rtype: Callable[Concatenate[UserService, _Params], _Result]
+    """
+
     @wraps(operation)
     def wrapped(
         self: UserService,
         *args: _Params.args,
         **kwargs: _Params.kwargs,
     ) -> _Result:
+        """Run the operation and roll back the session when it fails.
+
+        :param self: The user service instance.
+        :type self: UserService
+        :param args: Positional arguments passed to the operation.
+        :type args: _Params.args
+        :param kwargs: Keyword arguments passed to the operation.
+        :type kwargs: _Params.kwargs
+        :returns: The wrapped operation's result.
+        :rtype: _Result
+        :raises Exception: Re-raises an operation failure after rollback.
+        """
         try:
             return operation(self, *args, **kwargs)
         except IntegrityError:
@@ -113,7 +133,7 @@ class UserService:
     @_rollback_on_error
     def ensure_initial_admin(self, username: str, password: str) -> None:
         """Create the initial groups and the administrator if they are missing.
-        
+
         :param username: The username for the initial admin user.
         :type username: str
         :param password: The password for the initial admin user.
@@ -131,6 +151,18 @@ class UserService:
         username: str,
         password: str,
     ) -> None:
+        """Ensure the administrator, reference groups, and login state exist.
+
+        :param session: The active SQLAlchemy session.
+        :type session: Session
+        :param username: The configured administrator username.
+        :type username: str
+        :param password: The configured administrator password.
+        :type password: str
+        :returns: ``None``.
+        :rtype: None
+        :raises ValueError: If a new administrator has no password.
+        """
         user = session.scalar(select(User).where(User.username == username))
         if user is None and not password:
             raise ValueError("ADMIN_PASSWORD est requis pour creer le compte initial")
@@ -152,6 +184,19 @@ class UserService:
         password: str,
         groups: list[Group],
     ) -> User:
+        """Create the initial administrator and its internal identity record.
+
+        :param session: The active SQLAlchemy session.
+        :type session: Session
+        :param username: The administrator username.
+        :type username: str
+        :param password: The administrator password to hash.
+        :type password: str
+        :param groups: Existing groups to associate with the administrator.
+        :type groups: list[Group]
+        :returns: The persisted administrator record.
+        :rtype: User
+        """
         admin_group = next(group for group in groups if group.name == "ADMIN")
         user = User(
             username=username,
@@ -295,8 +340,6 @@ class UserService:
     ) -> UniformUser:
         """Create an internal user with a hashed password.
 
-        Cree un utilisateur interne avec un mot de passe hache.
-
         :param username: The username of the internal user.
         :type username: str
         :param email: The email of the internal user.
@@ -396,6 +439,22 @@ class UserService:
         email: str | None,
         password: str | None,
     ) -> None:
+        """Validate updates against the user's authentication source and field limits.
+
+        :param source: Authentication source of the existing account.
+        :type source: Literal["internal", "external"]
+        :param user_id: Identifier used in validation logs.
+        :type user_id: int
+        :param username: Optional replacement username.
+        :type username: str | None
+        :param email: Optional replacement email address.
+        :type email: str | None
+        :param password: Optional replacement password.
+        :type password: str | None
+        :returns: ``None``.
+        :rtype: None
+        :raises ValueError: If a field is invalid or an external account is modified.
+        """
         if source == "external" and any(
             value is not None for value in (username, email, password)
         ):
@@ -421,6 +480,27 @@ class UserService:
         group_names: list[str] | None,
         enabled: bool | None,
     ) -> None:
+        """Apply validated user changes and revoke sessions when credentials change.
+
+        :param session: The active SQLAlchemy session.
+        :type session: Session
+        :param record: User record to update.
+        :type record: User
+        :param user_id: Identifier of the user being changed.
+        :type user_id: int
+        :param username: Optional replacement username.
+        :type username: str | None
+        :param email: Optional replacement email address.
+        :type email: str | None
+        :param password: Optional replacement password.
+        :type password: str | None
+        :param group_names: Optional replacement group names.
+        :type group_names: list[str] | None
+        :param enabled: Optional account-enabled state.
+        :type enabled: bool | None
+        :returns: ``None``.
+        :rtype: None
+        """
         if username is not None:
             record.username = username
         if email is not None:
@@ -467,7 +547,8 @@ class UserService:
         :param user_id: The SQL identifier of the user to delete.
         :type user_id: int
 
-        :return: True if the user was deleted, False if the user does not exist.
+        :return: True if the user and its authentication records were deleted,
+        False if the user does not exist.
         :rtype: bool
 
         :raises SQLAlchemyError: If committing the session to the database fails.
@@ -478,6 +559,11 @@ class UserService:
             return False
         session.execute(delete(UserSession).where(UserSession.user_id == user_id))
         session.execute(delete(UserLoginState).where(UserLoginState.user_id == user_id))
+        session.execute(delete(UserGroup).where(UserGroup.user_id == user_id))
+        session.execute(delete(UserIdentity).where(UserIdentity.user_id == user_id))
+        session.execute(
+            delete(UserPreferences).where(UserPreferences.user_id == user_id)
+        )
         session.delete(record)
         self._commit(session)
         return True
@@ -526,6 +612,16 @@ class UserService:
         issuer: str,
         claims: dict[str, object],
     ) -> tuple[str, str, str, str, set[str]]:
+        """Validate OIDC claims and derive stable local identity fields.
+
+        :param issuer: The configured OIDC issuer.
+        :type issuer: str
+        :param claims: User claims returned by the identity provider.
+        :type claims: dict[str, object]
+        :returns: Issuer, subject, generated username, generated email, and allowed groups.
+        :rtype: tuple[str, str, str, str, set[str]]
+        :raises ValueError: If the issuer or subject is invalid.
+        """
         subject = claims.get("sub")
         if (
             not isinstance(subject, str)
@@ -534,7 +630,7 @@ class UserService:
             or not issuer
             or len(issuer) > 255
         ):
-            LOGGER.exception("OIDC response does not contain a valid subject: %s", claims)
+            LOGGER.warning("OIDC response does not contain a valid subject")
             raise ValueError("La reponse OIDC ne contient pas de sujet valide")
         identity = hashlib.sha256(f"{issuer}|{subject}".encode("utf-8")).hexdigest()
         username = f"oidc_{identity[:40]}"
@@ -557,6 +653,24 @@ class UserService:
         email: str,
         group_names: set[str],
     ) -> User:
+        """Find or create the local account matching an external identity.
+
+        :param session: The active SQLAlchemy session.
+        :type session: Session
+        :param issuer: The identity provider issuer.
+        :type issuer: str
+        :param subject: The subject identifier from the provider.
+        :type subject: str
+        :param username: Stable generated local username.
+        :type username: str
+        :param email: Stable generated local email placeholder.
+        :type email: str
+        :param group_names: Allowed groups requested by the identity provider.
+        :type group_names: set[str]
+        :returns: The synchronized local user record.
+        :rtype: User
+        :raises ValueError: If an existing account conflicts with the external identity.
+        """
         record = session.scalar(select(User).where(User.username == username))
         identity = session.get(UserIdentity, record.id) if record is not None else None
         self._validate_external_account(record, identity, issuer, subject)
@@ -591,6 +705,20 @@ class UserService:
         issuer: str,
         subject: str,
     ) -> None:
+        """Reject disabled, internal, or mismatched records for an OIDC identity.
+
+        :param record: Existing user record, if one matches the generated username.
+        :type record: User | None
+        :param identity: Existing identity provenance record, if present.
+        :type identity: UserIdentity | None
+        :param issuer: The identity provider issuer.
+        :type issuer: str
+        :param subject: The subject identifier from the provider.
+        :type subject: str
+        :returns: ``None``.
+        :rtype: None
+        :raises ValueError: If the account is disabled or belongs to another identity.
+        """
         if record is None:
             return
         if not record.enabled:
@@ -610,17 +738,18 @@ class UserService:
     @_rollback_on_error
     def synchronize_auth_context(
         self,
-        mode: Literal["none", "internal", "external"],
+        mode: Literal["internal", "external"],
         issuer: str | None = None,
     ) -> bool:
-        """Clear authentication data when its configured owner changes.
+        """Reject a change of authentication owner until data is migrated explicitly.
 
         :param mode: The authentication mode to synchronize with.
-        :type mode: Literal["none", "internal", "external"]
+        :type mode: Literal["internal", "external"]
         :param issuer: The issuer of the authentication token, if applicable.
         :type issuer: str | None
-        :return: True if the authentication context was changed, False otherwise.
+        :return: False when the stored authentication context matches.
         :rtype: bool
+        :raises ValueError: If the authentication mode or issuer changes.
         """
         session = self.db_session()
         state = session.get(AuthRuntimeState, 1)
@@ -633,22 +762,10 @@ class UserService:
             return False
         if state.auth_mode == mode and state.issuer == normalized_issuer:
             return False
-
-        session.execute(delete(UserSession))
-        session.execute(delete(UserLoginState))
-        session.execute(delete(UserGroup))
-        session.execute(delete(UserIdentity))
-        session.execute(
-            delete(UserPreferences)
-            .where(UserPreferences.user_id.is_not(None))
+        raise ValueError(
+            "Le mode ou l’émetteur d’authentification a changé; "
+            "une migration explicite est requise pour préserver les comptes."
         )
-        session.execute(delete(User))
-        session.execute(delete(Group))
-        state.auth_mode = mode
-        state.issuer = normalized_issuer
-        self._commit(session)
-        session.expire_all()
-        return True
 
     @_rollback_on_error
     def ensure_identity_records(self) -> None:

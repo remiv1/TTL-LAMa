@@ -22,7 +22,7 @@ class User:
     :param groups: The groups the user belongs to.
     :type groups: list[str]
     :param auth_source: The authentication source of the user.
-    :type auth_source: Literal["none", "internal", "external"]
+    :type auth_source: Literal["internal", "external"]
     :raises ValueError: If any of the parameters are invalid.
 
     .. methods::
@@ -35,7 +35,7 @@ class User:
     id: int | str
     username: str
     groups: list[str]
-    auth_source: Literal["none", "internal", "external"]
+    auth_source: Literal["internal", "external"]
 
     def to_dict(self) -> dict[str, int | str | list[str]]:
         """Return the user identity as a JSON-compatible dictionary.

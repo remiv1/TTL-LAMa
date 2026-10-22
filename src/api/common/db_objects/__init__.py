@@ -3,12 +3,13 @@
 .. classes::
     - `Base`: base class for all database objects.
 
-.. constantes::
-    - `TABLE_ARGS`: default table arguments for the database objects.
+.. constants::
+    - `TABLE_SCHEMA_TOKEN`: Logical schema name translated for each database dialect.
+    - `TABLE_ARGS`: Default table arguments applying the logical schema.
 
 .. functions::
     - `foreign_key_target(table_name: str, column_name: str = "id") -> str`: Constructs a
-    foreign key reference compatible with the active schema.
+    schema-qualified foreign key reference compatible with the active schema.
     - `table_key(table_name: str) -> str`: Returns the metadata key of a table according to
     the active schema.
 
@@ -17,18 +18,14 @@
 """
 from __future__ import annotations
 
-from typing import Any
 import logging
+from typing import Any
 
 from sqlalchemy.orm import DeclarativeBase
 
-from ...config import DatabaseSettings
-from ...config.c_databases import DbType
-
-settings = DatabaseSettings()
-
-TABLE_ARGS = {"schema": settings.DB_SCHEMA} if settings.DB_TYPE == DbType.POSTGRESQL else {}
 LOGGER = logging.getLogger(__name__)
+TABLE_SCHEMA_TOKEN = "ttl_lama"
+TABLE_ARGS: dict[str, Any] = {"schema": TABLE_SCHEMA_TOKEN}
 
 
 def foreign_key_target(table_name: str, column_name: str = "id") -> str:
@@ -52,8 +49,7 @@ def table_key(table_name: str) -> str:
     :returns: The metadata key of the table.
     :rtype: str
     """
-    schema = TABLE_ARGS.get("schema")
-    return f"{schema}.{table_name}" if schema else table_name
+    return f"{TABLE_SCHEMA_TOKEN}.{table_name}"
 
 class Base(DeclarativeBase):
     """Base class for all database objects.
@@ -83,11 +79,13 @@ class Base(DeclarativeBase):
             This method assumes that the keys in the dictionary match the attribute names
             of the database object. Extra keys in the dictionary will be ignored.
         
-        .. example::
-            ```python
-            data = response.to_json()
-            obj = MyDatabaseObject.from_dict(data)
-            ```
+        .. note::
+            Example:
+
+            .. code-block:: python
+
+                data = response.to_json()
+                obj = MyDatabaseObject.from_dict(data)
         """
         obj = cls()
         for key, value in data.items():

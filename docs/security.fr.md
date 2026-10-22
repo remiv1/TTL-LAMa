@@ -28,6 +28,14 @@ Chaque profil ne doit fournir que les accès nécessaires à son usage. Par exem
 
 Un accès VPN ne signifie pas nécessairement l’accès à l’ensemble du réseau privé.
 
+## Socle applicatif
+
+En production, la configuration doit fournir une clé Flask d’au moins 32 caractères et activer les cookies `Secure`. L’authentification est obligatoire : elle utilise soit les comptes internes, soit un fournisseur d’identité externe. Les cookies de session sont `HttpOnly` et `SameSite=Lax`; les requêtes modifiant l’état sont protégées contre les attaques CSRF.
+
+Les secrets peuvent être montés sous `/run/secrets/` et référencés par des paramètres terminés par `_FILE`. Ils ne doivent apparaître ni dans les journaux ni dans l’image. Les jetons de session persistés sont stockés sous forme de condensat.
+
+Le conteneur s’exécute sans privilèges root. Le changement de mode ou d’émetteur d’authentification ne supprime pas automatiquement les comptes existants : une migration explicite est requise.
+
 ## Révocation automatique
 
 L’expiration est un invariant du modèle de sécurité. Un bail expiré ne doit pas simplement apparaître comme `EXPIRED` dans l’application ; il doit entraîner :

@@ -3,7 +3,6 @@
 .. classes::
     - `AuthBackend`: Base class for all authentication backends.
     - `InternalAuthBackend`: Backend for internal authentication.
-    - `NoneAuthBackend`: Backend without authentication or persistence.
     - `OIDCAuthBackend`: Backend for OpenID Connect (OIDC) authentication.
 
 .. module_author:: Rémi Verschuur <rverschuur@audit-io.fr>
