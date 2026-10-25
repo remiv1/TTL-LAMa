@@ -1,0 +1,177 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<!DOCTYPE svg PUBLIC "-//W3C//DTD SVG 1.0//EN" "http://www.w3.org/TR/2001/PR-SVG-20010719/DTD/svg10.dtd">
+<svg width="51cm" height="49cm" viewBox="52 23 1003 969" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
+  <g>
+    <rect style="fill: #fffffb" x="96" y="98" width="395" height="44"/>
+    <rect style="fill: none; fill-opacity:0; stroke-width: 1; stroke: #0000ff" x="96" y="98" width="395" height="44"/>
+    <text font-size="12.8" style="fill: #0000ff;text-anchor:middle;font-family:monospace;font-style:normal;font-weight:normal" x="293.5" y="115.683">&lt;&lt;users&gt;&gt;</text>
+    <text font-size="16" style="fill: #0000ff;text-anchor:middle;font-family:sans-serif;font-style:normal;font-weight:700" x="293.5" y="135.104">User</text>
+    <rect style="fill: #fffffb" x="96" y="142" width="395" height="116"/>
+    <rect style="fill: none; fill-opacity:0; stroke-width: 1; stroke: #0000ff" x="96" y="142" width="395" height="116"/>
+    <text font-size="12.8" style="fill: #0000ff;text-anchor:start;font-family:monospace;font-style:normal;font-weight:normal" x="98.5" y="157.683">+id: UUID = str(uuid4())</text>
+    <text font-size="12.8" style="fill: #0000ff;text-anchor:start;font-family:monospace;font-style:normal;font-weight:normal" x="98.5" y="173.683">+username: str(50)</text>
+    <text font-size="12.8" style="fill: #0000ff;text-anchor:start;font-family:monospace;font-style:normal;font-weight:normal" x="98.5" y="189.683">+email: str(100)</text>
+    <text font-size="12.8" style="fill: #0000ff;text-anchor:start;font-family:monospace;font-style:normal;font-weight:normal" x="98.5" y="205.683">+enabled: bool = True</text>
+    <text font-size="12.8" style="fill: #0000ff;text-anchor:start;font-family:monospace;font-style:normal;font-weight:normal" x="98.5" y="221.683">+is_admin: bool = False</text>
+    <text font-size="12.8" style="fill: #0000ff;text-anchor:start;font-family:monospace;font-style:normal;font-weight:normal" x="98.5" y="237.683">+created_at: datetime = datetime.now(timezone.utc)</text>
+    <text font-size="12.8" style="fill: #0000ff;text-anchor:start;font-family:monospace;font-style:normal;font-weight:normal" x="98.5" y="253.683">+last_login: datetime.datetime</text>
+    <rect style="fill: #fffffb" x="96" y="258" width="395" height="52"/>
+    <rect style="fill: none; fill-opacity:0; stroke-width: 1; stroke: #0000ff" x="96" y="258" width="395" height="52"/>
+    <text font-size="12.8" style="fill: #0000ff;text-anchor:start;font-family:monospace;font-style:normal;font-weight:normal" x="98.5" y="273.683">+to_dict(in without_secrets:bool=True): dict[str,</text>
+    <text font-size="12.8" style="fill: #0000ff;text-anchor:start;font-family:monospace;font-style:normal;font-weight:normal" x="98.5" y="289.683">          Any]</text>
+    <text font-size="12.8" style="fill: #0000ff;text-anchor:start;font-family:monospace;font-style:normal;font-weight:normal" x="98.5" y="305.683">+from_dict(in without_secrets:bool=True): User</text>
+  </g>
+  <g>
+    <rect style="fill: #fffffb" x="97.4" y="396" width="395" height="44"/>
+    <rect style="fill: none; fill-opacity:0; stroke-width: 1; stroke: #0000ff" x="97.4" y="396" width="395" height="44"/>
+    <text font-size="12.8" style="fill: #0000ff;text-anchor:middle;font-family:monospace;font-style:normal;font-weight:normal" x="294.9" y="413.683">&lt;&lt;user_sessions&gt;&gt;</text>
+    <text font-size="16" style="fill: #0000ff;text-anchor:middle;font-family:sans-serif;font-style:normal;font-weight:700" x="294.9" y="433.104">Session</text>
+    <rect style="fill: #fffffb" x="97.4" y="440" width="395" height="116"/>
+    <rect style="fill: none; fill-opacity:0; stroke-width: 1; stroke: #0000ff" x="97.4" y="440" width="395" height="116"/>
+    <text font-size="12.8" style="fill: #0000ff;text-anchor:start;font-family:monospace;font-style:normal;font-weight:normal" x="99.9" y="455.683">+id: int</text>
+    <text font-size="12.8" style="fill: #0000ff;text-anchor:start;font-family:monospace;font-style:normal;font-weight:normal" x="99.9" y="471.683">+user_id: UUID</text>
+    <text font-size="12.8" style="fill: #0000ff;text-anchor:start;font-family:monospace;font-style:normal;font-weight:normal" x="99.9" y="487.683">+token_hash: str(255)</text>
+    <text font-size="12.8" style="fill: #0000ff;text-anchor:start;font-family:monospace;font-style:normal;font-weight:normal" x="99.9" y="503.683">+created_at: datetime = datetime.now(timezone.utc)</text>
+    <text font-size="12.8" style="fill: #0000ff;text-anchor:start;font-family:monospace;font-style:normal;font-weight:normal" x="99.9" y="519.683">+expires_at: datetime.datetime</text>
+    <text font-size="12.8" style="fill: #0000ff;text-anchor:start;font-family:monospace;font-style:normal;font-weight:normal" x="99.9" y="535.683">+revoked_at: datetime.datetime</text>
+    <text font-size="12.8" style="fill: #0000ff;text-anchor:start;font-family:monospace;font-style:normal;font-weight:normal" x="99.9" y="551.683">+last_seen_at: datetime</text>
+    <rect style="fill: #fffffb" x="97.4" y="556" width="395" height="36"/>
+    <rect style="fill: none; fill-opacity:0; stroke-width: 1; stroke: #0000ff" x="97.4" y="556" width="395" height="36"/>
+    <text font-size="12.8" style="fill: #0000ff;text-anchor:start;font-family:monospace;font-style:normal;font-weight:normal" x="99.9" y="571.683">+to_dict(): dict[str, Any]</text>
+    <text font-size="12.8" style="fill: #0000ff;text-anchor:start;font-family:monospace;font-style:normal;font-weight:normal" x="99.9" y="587.683">+from_dict(): User</text>
+  </g>
+  <g>
+    <polyline style="fill: none; fill-opacity:0; stroke-width: 3; stroke-dasharray: 20 4 4 4 4 4; stroke: #ff0000" points="97.4,466 75.5,466 75.5,152 85.1459,152 "/>
+    <polygon style="fill: #ff0000" points="92.6459,152 82.6459,157 85.1459,152 82.6459,147 "/>
+    <polygon style="fill: none; fill-opacity:0; stroke-width: 3; stroke: #ff0000" points="92.6459,152 82.6459,157 85.1459,152 82.6459,147 "/>
+  </g>
+  <g>
+    <rect style="fill: #fffffb" x="98.8131" y="633.85" width="441.2" height="44"/>
+    <rect style="fill: none; fill-opacity:0; stroke-width: 1; stroke: #0000ff" x="98.8131" y="633.85" width="441.2" height="44"/>
+    <text font-size="12.8" style="fill: #0000ff;text-anchor:middle;font-family:monospace;font-style:normal;font-weight:normal" x="319.413" y="651.533">&lt;&lt;user_credentials&gt;&gt;</text>
+    <text font-size="16" style="fill: #0000ff;text-anchor:middle;font-family:sans-serif;font-style:normal;font-weight:700" x="319.413" y="670.953">Credentials</text>
+    <rect style="fill: #fffffb" x="98.8131" y="677.85" width="441.2" height="84"/>
+    <rect style="fill: none; fill-opacity:0; stroke-width: 1; stroke: #0000ff" x="98.8131" y="677.85" width="441.2" height="84"/>
+    <text font-size="12.8" style="fill: #0000ff;text-anchor:start;font-family:monospace;font-style:normal;font-weight:normal" x="101.313" y="693.533">+id: int</text>
+    <text font-size="12.8" style="fill: #0000ff;text-anchor:start;font-family:monospace;font-style:normal;font-weight:normal" x="101.313" y="709.533">+user_id: UUID</text>
+    <text font-size="12.8" style="fill: #0000ff;text-anchor:start;font-family:monospace;font-style:normal;font-weight:normal" x="101.313" y="725.533">+auth_method: str(50) = `internal` | `external` | `oidc`</text>
+    <text font-size="12.8" style="fill: #0000ff;text-anchor:start;font-family:monospace;font-style:normal;font-weight:normal" x="101.313" y="741.533">+hash_password: str(255)</text>
+    <text font-size="12.8" style="fill: #0000ff;text-anchor:start;font-family:monospace;font-style:normal;font-weight:normal" x="101.313" y="757.533">+user: User</text>
+    <rect style="fill: #fffffb" x="98.8131" y="761.85" width="441.2" height="36"/>
+    <rect style="fill: none; fill-opacity:0; stroke-width: 1; stroke: #0000ff" x="98.8131" y="761.85" width="441.2" height="36"/>
+    <text font-size="12.8" style="fill: #0000ff;text-anchor:start;font-family:monospace;font-style:normal;font-weight:normal" x="101.313" y="777.533">+to_dict(): dict[str, Any]</text>
+    <text font-size="12.8" style="fill: #0000ff;text-anchor:start;font-family:monospace;font-style:normal;font-weight:normal" x="101.313" y="793.533">+from_dict(): User</text>
+  </g>
+  <g>
+    <polyline style="fill: none; fill-opacity:0; stroke-width: 3; stroke-dasharray: 20 4 4 4 4 4; stroke: #ff0000" points="98.8131,703.85 54.0993,703.85 54.0993,152 85.1459,152 "/>
+    <polygon style="fill: #ff0000" points="92.6459,152 82.6459,157 85.1459,152 82.6459,147 "/>
+    <polygon style="fill: none; fill-opacity:0; stroke-width: 3; stroke: #ff0000" points="92.6459,152 82.6459,157 85.1459,152 82.6459,147 "/>
+  </g>
+  <g>
+    <rect style="fill: #fffffb" x="630.266" y="24.1868" width="402.7" height="44"/>
+    <rect style="fill: none; fill-opacity:0; stroke-width: 1; stroke: #0000ff" x="630.266" y="24.1868" width="402.7" height="44"/>
+    <text font-size="12.8" style="fill: #0000ff;text-anchor:middle;font-family:monospace;font-style:normal;font-weight:normal" x="831.616" y="41.8696">&lt;&lt;profiles&gt;&gt;</text>
+    <text font-size="16" style="fill: #0000ff;text-anchor:middle;font-family:sans-serif;font-style:normal;font-weight:700" x="831.616" y="61.2903">Profile</text>
+    <rect style="fill: #fffffb" x="630.266" y="68.1868" width="402.7" height="100"/>
+    <rect style="fill: none; fill-opacity:0; stroke-width: 1; stroke: #0000ff" x="630.266" y="68.1868" width="402.7" height="100"/>
+    <text font-size="12.8" style="fill: #0000ff;text-anchor:start;font-family:monospace;font-style:normal;font-weight:normal" x="632.766" y="83.8696">+id: int</text>
+    <text font-size="12.8" style="fill: #0000ff;text-anchor:start;font-family:monospace;font-style:normal;font-weight:normal" x="632.766" y="99.8696">+name: str(255)</text>
+    <text font-size="12.8" style="fill: #0000ff;text-anchor:start;font-family:monospace;font-style:normal;font-weight:normal" x="632.766" y="115.87">+created_at: datetime = datetime.nomw(timezone.utc)</text>
+    <text font-size="12.8" style="fill: #0000ff;text-anchor:start;font-family:monospace;font-style:normal;font-weight:normal" x="632.766" y="131.87">+revoked_at: datetime</text>
+    <text font-size="12.8" style="fill: #0000ff;text-anchor:start;font-family:monospace;font-style:normal;font-weight:normal" x="632.766" y="147.87"> profile_user: list[ProfileUser]</text>
+    <text font-size="12.8" style="fill: #0000ff;text-anchor:start;font-family:monospace;font-style:normal;font-weight:normal" x="632.766" y="163.87"> users: list[User]</text>
+    <rect style="fill: #fffffb" x="630.266" y="168.187" width="402.7" height="36"/>
+    <rect style="fill: none; fill-opacity:0; stroke-width: 1; stroke: #0000ff" x="630.266" y="168.187" width="402.7" height="36"/>
+    <text font-size="12.8" style="fill: #0000ff;text-anchor:start;font-family:monospace;font-style:normal;font-weight:normal" x="632.766" y="183.87">+to_dict(): dict[str, Any]</text>
+    <text font-size="12.8" style="fill: #0000ff;text-anchor:start;font-family:monospace;font-style:normal;font-weight:normal" x="632.766" y="199.87">+from_dict(): User</text>
+  </g>
+  <g>
+    <rect style="fill: #fffffb" x="630.656" y="305.601" width="402.7" height="44"/>
+    <rect style="fill: none; fill-opacity:0; stroke-width: 1; stroke: #0000ff" x="630.656" y="305.601" width="402.7" height="44"/>
+    <text font-size="12.8" style="fill: #0000ff;text-anchor:middle;font-family:monospace;font-style:normal;font-weight:normal" x="832.006" y="323.284">&lt;&lt;profile_users&gt;&gt;</text>
+    <text font-size="16" style="fill: #0000ff;text-anchor:middle;font-family:sans-serif;font-style:normal;font-weight:700" x="832.006" y="342.705">ProfileUser</text>
+    <rect style="fill: #fffffb" x="630.656" y="349.601" width="402.7" height="132"/>
+    <rect style="fill: none; fill-opacity:0; stroke-width: 1; stroke: #0000ff" x="630.656" y="349.601" width="402.7" height="132"/>
+    <text font-size="12.8" style="fill: #0000ff;text-anchor:start;font-family:monospace;font-style:normal;font-weight:normal" x="633.156" y="365.284">+id: int</text>
+    <text font-size="12.8" style="fill: #0000ff;text-anchor:start;font-family:monospace;font-style:normal;font-weight:normal" x="633.156" y="381.284">+profile_id: int</text>
+    <text font-size="12.8" style="fill: #0000ff;text-anchor:start;font-family:monospace;font-style:normal;font-weight:normal" x="633.156" y="397.284">+user_id: UUID</text>
+    <text font-size="12.8" style="fill: #0000ff;text-anchor:start;font-family:monospace;font-style:normal;font-weight:normal" x="633.156" y="413.284">+created_at: datetime = datetime.nomw(timezone.utc)</text>
+    <text font-size="12.8" style="fill: #0000ff;text-anchor:start;font-family:monospace;font-style:normal;font-weight:normal" x="633.156" y="429.284">+revoked_at: datetime</text>
+    <text font-size="12.8" style="fill: #0000ff;text-anchor:start;font-family:monospace;font-style:normal;font-weight:normal" x="633.156" y="445.284"> profile: Profile</text>
+    <text font-size="12.8" style="fill: #0000ff;text-anchor:start;font-family:monospace;font-style:normal;font-weight:normal" x="633.156" y="461.284"> user: User</text>
+    <text font-size="12.8" style="fill: #0000ff;text-anchor:start;font-family:monospace;font-style:normal;font-weight:normal" x="633.156" y="477.284"> leases: list[Lease]</text>
+    <rect style="fill: #fffffb" x="630.656" y="481.601" width="402.7" height="36"/>
+    <rect style="fill: none; fill-opacity:0; stroke-width: 1; stroke: #0000ff" x="630.656" y="481.601" width="402.7" height="36"/>
+    <text font-size="12.8" style="fill: #0000ff;text-anchor:start;font-family:monospace;font-style:normal;font-weight:normal" x="633.156" y="497.284">+to_dict(): dict[str, Any]</text>
+    <text font-size="12.8" style="fill: #0000ff;text-anchor:start;font-family:monospace;font-style:normal;font-weight:normal" x="633.156" y="513.284">+from_dict(): User</text>
+  </g>
+  <g>
+    <polyline style="fill: none; fill-opacity:0; stroke-width: 3; stroke-dasharray: 20 4 4 4 4 4; stroke: #ff0000" points="630.656,375.601 584.507,375.601 584.507,78.1868 619.412,78.1868 "/>
+    <polygon style="fill: #ff0000" points="626.912,78.1868 616.912,83.1868 619.412,78.1868 616.912,73.1868 "/>
+    <polygon style="fill: none; fill-opacity:0; stroke-width: 3; stroke: #ff0000" points="626.912,78.1868 616.912,83.1868 619.412,78.1868 616.912,73.1868 "/>
+  </g>
+  <g>
+    <polyline style="fill: none; fill-opacity:0; stroke-width: 3; stroke-dasharray: 20 4 4 4 4 4; stroke: #ff0000" points="630.656,391.601 565.054,391.601 565.054,152 501.854,152 "/>
+    <polygon style="fill: #ff0000" points="494.354,152 504.354,147 501.854,152 504.354,157 "/>
+    <polygon style="fill: none; fill-opacity:0; stroke-width: 3; stroke: #ff0000" points="494.354,152 504.354,147 501.854,152 504.354,157 "/>
+  </g>
+  <g>
+    <rect style="fill: #fffffb" x="630.656" y="567.563" width="395" height="44"/>
+    <rect style="fill: none; fill-opacity:0; stroke-width: 1; stroke: #0000ff" x="630.656" y="567.563" width="395" height="44"/>
+    <text font-size="12.8" style="fill: #0000ff;text-anchor:middle;font-family:monospace;font-style:normal;font-weight:normal" x="828.156" y="585.245">&lt;&lt;leases&gt;&gt;</text>
+    <text font-size="16" style="fill: #0000ff;text-anchor:middle;font-family:sans-serif;font-style:normal;font-weight:700" x="828.156" y="604.666">Lease</text>
+    <rect style="fill: #fffffb" x="630.656" y="611.563" width="395" height="180"/>
+    <rect style="fill: none; fill-opacity:0; stroke-width: 1; stroke: #0000ff" x="630.656" y="611.563" width="395" height="180"/>
+    <text font-size="12.8" style="fill: #0000ff;text-anchor:start;font-family:monospace;font-style:normal;font-weight:normal" x="633.156" y="627.245">+id: int</text>
+    <text font-size="12.8" style="fill: #0000ff;text-anchor:start;font-family:monospace;font-style:normal;font-weight:normal" x="633.156" y="643.245">+user_id: UUID</text>
+    <text font-size="12.8" style="fill: #0000ff;text-anchor:start;font-family:monospace;font-style:normal;font-weight:normal" x="633.156" y="659.245">+profile_user_id: int</text>
+    <text font-size="12.8" style="fill: #0000ff;text-anchor:start;font-family:monospace;font-style:normal;font-weight:normal" x="633.156" y="675.245">+device_id: int</text>
+    <text font-size="12.8" style="fill: #0000ff;text-anchor:start;font-family:monospace;font-style:normal;font-weight:normal" x="633.156" y="691.245">+created_at: datetime = datetime.now(timezone.utc)</text>
+    <text font-size="12.8" style="fill: #0000ff;text-anchor:start;font-family:monospace;font-style:normal;font-weight:normal" x="633.156" y="707.245">+ended_at: datetime</text>
+    <text font-size="12.8" style="fill: #0000ff;text-anchor:start;font-family:monospace;font-style:normal;font-weight:normal" x="633.156" y="723.245">+revoked_at: datetime</text>
+    <text font-size="12.8" style="fill: #0000ff;text-anchor:start;font-family:monospace;font-style:normal;font-weight:normal" x="633.156" y="739.245"> device: Device</text>
+    <text font-size="12.8" style="fill: #0000ff;text-anchor:start;font-family:monospace;font-style:normal;font-weight:normal" x="633.156" y="755.245">+user: User</text>
+    <text font-size="12.8" style="fill: #0000ff;text-anchor:start;font-family:monospace;font-style:normal;font-weight:normal" x="633.156" y="771.245">+profile_user: ProfileUser</text>
+    <text font-size="12.8" style="fill: #0000ff;text-anchor:start;font-family:monospace;font-style:normal;font-weight:normal" x="633.156" y="787.245">+profile: Profile</text>
+    <rect style="fill: #fffffb" x="630.656" y="791.563" width="395" height="36"/>
+    <rect style="fill: none; fill-opacity:0; stroke-width: 1; stroke: #0000ff" x="630.656" y="791.563" width="395" height="36"/>
+    <text font-size="12.8" style="fill: #0000ff;text-anchor:start;font-family:monospace;font-style:normal;font-weight:normal" x="633.156" y="807.245">+to_dict(): dict[str, Any]</text>
+    <text font-size="12.8" style="fill: #0000ff;text-anchor:start;font-family:monospace;font-style:normal;font-weight:normal" x="633.156" y="823.245">+from_dict(): User</text>
+  </g>
+  <g>
+    <polyline style="fill: none; fill-opacity:0; stroke-width: 3; stroke-dasharray: 20 4 4 4 4 4; stroke: #ff0000" points="630.656,637.563 549.492,637.563 549.492,152 501.854,152 "/>
+    <polygon style="fill: #ff0000" points="494.354,152 504.354,147 501.854,152 504.354,157 "/>
+    <polygon style="fill: none; fill-opacity:0; stroke-width: 3; stroke: #ff0000" points="494.354,152 504.354,147 501.854,152 504.354,157 "/>
+  </g>
+  <g>
+    <polyline style="fill: none; fill-opacity:0; stroke-width: 3; stroke-dasharray: 20 4 4 4 4 4; stroke: #ff0000" points="630.656,669.563 588.397,669.563 588.397,865.369 532.93,865.369 "/>
+    <polygon style="fill: #ff0000" points="525.43,865.369 535.43,860.369 532.93,865.369 535.43,870.369 "/>
+    <polygon style="fill: none; fill-opacity:0; stroke-width: 3; stroke: #ff0000" points="525.43,865.369 535.43,860.369 532.93,865.369 535.43,870.369 "/>
+  </g>
+  <g>
+    <rect style="fill: #fffffb" x="211.776" y="811.369" width="310.3" height="44"/>
+    <rect style="fill: none; fill-opacity:0; stroke-width: 1; stroke: #0000ff" x="211.776" y="811.369" width="310.3" height="44"/>
+    <text font-size="12.8" style="fill: #0000ff;text-anchor:middle;font-family:monospace;font-style:normal;font-weight:normal" x="366.926" y="829.051">&lt;&lt;devices&gt;&gt;</text>
+    <text font-size="16" style="fill: #0000ff;text-anchor:middle;font-family:sans-serif;font-style:normal;font-weight:700" x="366.926" y="848.472">Device</text>
+    <rect style="fill: #fffffb" x="211.776" y="855.369" width="310.3" height="100"/>
+    <rect style="fill: none; fill-opacity:0; stroke-width: 1; stroke: #0000ff" x="211.776" y="855.369" width="310.3" height="100"/>
+    <text font-size="12.8" style="fill: #0000ff;text-anchor:start;font-family:monospace;font-style:normal;font-weight:normal" x="214.276" y="871.051">+id: int</text>
+    <text font-size="12.8" style="fill: #0000ff;text-anchor:start;font-family:monospace;font-style:normal;font-weight:normal" x="214.276" y="887.051">+user_id: UUID</text>
+    <text font-size="12.8" style="fill: #0000ff;text-anchor:start;font-family:monospace;font-style:normal;font-weight:normal" x="214.276" y="903.051">+name: str(255)</text>
+    <text font-size="12.8" style="fill: #0000ff;text-anchor:start;font-family:monospace;font-style:normal;font-weight:normal" x="214.276" y="919.051">+public_key: str(512)</text>
+    <text font-size="12.8" style="fill: #0000ff;text-anchor:start;font-family:monospace;font-style:normal;font-weight:normal" x="214.276" y="935.051">+created_at: datetime.now(timezone.utc)</text>
+    <text font-size="12.8" style="fill: #0000ff;text-anchor:start;font-family:monospace;font-style:normal;font-weight:normal" x="214.276" y="951.051">+user: User</text>
+    <rect style="fill: #fffffb" x="211.776" y="955.369" width="310.3" height="36"/>
+    <rect style="fill: none; fill-opacity:0; stroke-width: 1; stroke: #0000ff" x="211.776" y="955.369" width="310.3" height="36"/>
+    <text font-size="12.8" style="fill: #0000ff;text-anchor:start;font-family:monospace;font-style:normal;font-weight:normal" x="214.276" y="971.051">+to_dict(): dict[str, Any]</text>
+    <text font-size="12.8" style="fill: #0000ff;text-anchor:start;font-family:monospace;font-style:normal;font-weight:normal" x="214.276" y="987.051">+from_dict(): User</text>
+  </g>
+  <g>
+    <polyline style="fill: none; fill-opacity:0; stroke-width: 3; stroke-dasharray: 20 4 4 4 4 4; stroke: #ff0000" points="1025.66,653.563 1053.96,653.563 1053.96,359.601 1044.21,359.601 "/>
+    <polygon style="fill: #ff0000" points="1036.71,359.601 1046.71,354.601 1044.21,359.601 1046.71,364.601 "/>
+    <polygon style="fill: none; fill-opacity:0; stroke-width: 3; stroke: #ff0000" points="1036.71,359.601 1046.71,354.601 1044.21,359.601 1046.71,364.601 "/>
+  </g>
+  <text font-size="45.1556" style="fill: #0000ff;text-anchor:start;font-family:Comfortaa;font-style:italic;font-weight:700" x="194.806" y="64.5374">
+    <tspan x="194.806" y="64.5374">TTL-LAMa</tspan>
+  </text>
+</svg>

@@ -10,11 +10,14 @@ from __future__ import annotations
 
 from uuid import UUID
 
+from typing import TYPE_CHECKING
 from sqlalchemy import Integer, String, CheckConstraint, ForeignKey
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from ._common import Base, TABLE_ARGS, foreign_key_target
 from ..other_objects import AuthMethod
+if TYPE_CHECKING:
+    from .users import User
 
 _USER_ID = "Unique identifier of the user"
 
@@ -60,4 +63,9 @@ class Credentials(Base):
         String(255),
         nullable=False,
         comment="Hashed password of the user",
+    )
+    user: Mapped["User"] = relationship(
+        "User",
+        back_populates="credentials",
+        uselist=False,
     )

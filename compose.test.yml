@@ -42,6 +42,13 @@ services:
       interval: 5s
       timeout: 3s
       retries: 30
+    
+  dex:
+    image: docker.io/dexidp/dex:2.46.1
+    environment:
+      DEX_CONFIG: /etc/dex/cfg/config.yaml
+    volumes:
+      - ./dex/config:/etc/dex/cfg
 
   tests:
     build:

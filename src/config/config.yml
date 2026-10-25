@@ -14,6 +14,11 @@ auth:
   admin:
     username: admin
     password: admin
+  oidc:
+    issuer: your_issuer_url
+    client_id: your_client_id
+    client_secret_file: /run/secrets/oidc_client_secret
+    redirect_uri: your_redirect_uri
 
 database:
   type: sqlite

@@ -8,13 +8,17 @@
 """
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
 from datetime import datetime, timezone
 from uuid import UUID
 
 from sqlalchemy import Integer, String, DateTime, ForeignKey
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from ._common import Base, TABLE_ARGS, foreign_key_target
+
+if TYPE_CHECKING:
+    from .users import User
 
 _USER_ID = "Unique identifier of the user"
 
@@ -86,4 +90,10 @@ class Session(Base):
         DateTime,
         nullable=True,
         comment="Timestamp when the session was last seen",
+    )
+
+    user: Mapped["User"] = relationship(
+        "User",
+        back_populates="sessions",
+        uselist=False,
     )

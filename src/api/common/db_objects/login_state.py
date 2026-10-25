@@ -8,11 +8,16 @@
 """
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
 from uuid import UUID
+
 from sqlalchemy import Integer, String, Boolean, ForeignKey
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from ._common import Base, TABLE_ARGS, foreign_key_target
+
+if TYPE_CHECKING:
+    from .users import User
 
 _USER_ID = "Unique identifier of the user"
 
@@ -50,4 +55,9 @@ class LoginState(Base):
         nullable=False,
         default=False,
         comment="Indicates whether the user's account is locked",
+    )
+    user: Mapped["User"] = relationship(
+        "User",
+        back_populates="login_state",
+        uselist=False,
     )

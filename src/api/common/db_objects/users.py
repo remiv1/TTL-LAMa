@@ -15,13 +15,22 @@
 """
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
 from datetime import datetime, timezone
 from uuid import uuid4, UUID
 
 from sqlalchemy import String, DateTime, Boolean
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from ._common import Base, TABLE_ARGS
+
+if TYPE_CHECKING:
+    from .sessions import Session
+    from .credentials import Credentials
+    from .devices import Device
+    from .profiles import Profile
+    from .login_state import LoginState
+    from .oidc import OIDCUser
 
 _USER_ID = "Unique identifier of the user"
 
@@ -102,4 +111,36 @@ class User(Base):
         nullable=True,
         unique=False,
         comment="Timestamp indicating the last login of the user",
+    )
+
+    oidc_users: Mapped[list["OIDCUser"]] = relationship(
+        "OIDCUser",
+        back_populates="user",
+        uselist=True,
+    )
+    sessions: Mapped[list["Session"]] = relationship(
+        "Session",
+        back_populates="user",
+        uselist=True,
+    )
+    credentials: Mapped[list["Credentials"]] = relationship(
+        "Credentials",
+        back_populates="user",
+        uselist=True,
+    )
+    devices: Mapped[list["Device"]] = relationship(
+        "Device",
+        back_populates="user",
+        uselist=True,
+    )
+    profiles: Mapped[list["Profile"]] = relationship(
+        "Profile",
+        secondary="profile_users",
+        back_populates="users",
+        viewonly=True,
+    )
+    login_state: Mapped["LoginState"] = relationship(
+        "LoginState",
+        back_populates="user",
+        uselist=False,
     )
