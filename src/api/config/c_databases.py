@@ -215,7 +215,7 @@ class DatabaseConfig:
 
         :raises SQLAlchemyError: If schema or table initialization fails.
         """
-        base_module = import_module("api.common.db_objects")
+        base_module = import_module("api.common.db_objects._common")
         user_module = import_module("api.common.db_objects.users")
         base_class = getattr(base_module, "Base")
         user_model = getattr(user_module, "User")

@@ -1,5 +1,6 @@
 services:
   postgres:
+    container_name: postgres
     image: docker.io/library/postgres:16-alpine
     environment:
       POSTGRES_DB: ttl_lama_test
@@ -12,6 +13,7 @@ services:
       retries: 20
 
   mariadb:
+    container_name: mariadb
     image: docker.io/library/mariadb:11.4
     environment:
       MARIADB_DATABASE: ttl_lama_test
@@ -28,6 +30,7 @@ services:
       retries: 30
 
   mysql:
+    container_name: mysql
     image: docker.io/library/mysql:8.4
     environment:
       MYSQL_DATABASE: ttl_lama_test
@@ -44,13 +47,23 @@ services:
       retries: 30
     
   dex:
-    image: docker.io/dexidp/dex:2.46.1
+    container_name: dex
+    image: docker.io/dexidp/dex:v2.46.1-alpine
+    command: ["dex", "serve", "/etc/dex/cfg/config.yaml"]
     environment:
       DEX_CONFIG: /etc/dex/cfg/config.yaml
+      DEX_SESSIONS_ENABLED: "true"
     volumes:
-      - ./dex/config:/etc/dex/cfg
+      - ./src/dex/config.yaml:/etc/dex/cfg/config.yaml:ro,z
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:5556/dex/healthz"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 5s
 
   tests:
+    container_name: tests
     build:
       context: .
       dockerfile: src/Dockerfile
@@ -67,5 +80,7 @@ services:
       mariadb:
         condition: service_healthy
       mysql:
+        condition: service_healthy
+      dex:
         condition: service_healthy
     command: ["python", "-m", "pytest", "-v", "--color=yes", "-ra", "-p", "no:cacheprovider"]

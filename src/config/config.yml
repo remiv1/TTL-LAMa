@@ -32,6 +32,7 @@ security:
   session_cookie_secure: false
   session_cookie_samesite: Lax
   session_cookie_path: /
+  session_lifetime: 3600
 
 access_profiles:
   file: /etc/ttl-lama/access-profiles.yml

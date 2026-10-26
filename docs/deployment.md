@@ -67,7 +67,7 @@ access_profiles:
   file: /etc/ttl-lama/access-profiles.yml
 ```
 
-Supported database engines are `sqlite`, `postgresql`, `mariadb`, and `mysql`. SQLite is the standalone default. An external database requires `database.host`, `database.name`, `database.user`, and `database.password_file`; `database.port` is optional and defaults to the engine's standard port. `TTL_LAMA_...` environment variables remain available as overrides; for example, `TTL_LAMA_AUTH_MODE` overrides `auth.mode`.
+Supported database engines are `sqlite`, `postgresql`, `mariadb`, and `mysql`. SQLite is the standalone default. An external database requires `database.host`, `database.name`, `database.user`, and `database.password_file`; `database.port` is optional and defaults to the engine's standard port ; `database.schema` is also required for some engines like postgresql. `TTL_LAMA_...` environment variables remain available as overrides; for example, `TTL_LAMA_AUTH_MODE` overrides `auth.mode`.
 
 Access profiles are validated separately in `/etc/ttl-lama/access-profiles.yml`:
 

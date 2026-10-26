@@ -19,14 +19,14 @@ Chaque grande ligne regroupe un chantier, chaque sous-tâche un résultat à obt
 
 - [ ] Lister les actifs à protéger : identifiants, sessions, clés publiques, configuration, baux et accès réseau.
   - [x] Transformer les identifiants utilisateurs en UUID.
-  - [ ] Données sensibles identifiées :
+  - [x] Données sensibles identifiées :
     - identifiant & mot de passe
     - clés publiques
     - liens vers les fournisseurs d'identité
     - sessions
     - appartenances à des groupes
-  - [ ] Créer une table de conservation des clés publiques et/ou privées.
-  - [ ] Créer une table pour la conservation des baux.
+  - [x] Créer une table de conservation des clés publiques et/ou privées.
+  - [x] Créer une table pour la conservation des baux.
 - [ ] Décrire les acteurs, les frontières de confiance et les interfaces exposées.
 - [ ] Recenser les menaces liées à l’authentification, à l’autorisation, aux secrets, au conteneur et au backend réseau.
 - [ ] Associer à chaque menace une mesure de réduction et un risque résiduel accepté.
@@ -92,7 +92,7 @@ Chaque grande ligne regroupe un chantier, chaque sous-tâche un résultat à obt
 
 ### 2.3 Mettre en place la persistance SQLite
 
-- [ ] Définir les tables et contraintes du modèle métier validé.
+- [x] Définir les tables et contraintes du modèle métier validé.
 - [ ] Créer la première migration et documenter son exécution.
 - [ ] Implémenter les dépôts pour les identités, appareils, profils, baux et événements d’audit.
 - [ ] Vérifier les transactions lors des opérations qui modifient à la fois un bail et son état de provisionnement.
@@ -136,14 +136,14 @@ Chaque grande ligne regroupe un chantier, chaque sous-tâche un résultat à obt
 
 ### 3.1 Terminer l’intégration OIDC
 
-- [ ] Vérifier le flux existant contre les exigences OIDC retenues et les contrôles de sécurité attendus.
+- [x] Vérifier le flux existant contre les exigences OIDC retenues et les contrôles de sécurité attendus.
 - [ ] Gérer les erreurs d’échange, d’état, de nonce, d’émetteur et de validation des jetons.
 - [ ] Définir la correspondance stable entre le sujet externe et l’identité locale.
 - [ ] Tester le flux avec un fournisseur simulé et documenter un exemple de configuration.
 
 ### 3.2 Ajouter les bases de données externes
 
-- [ ] Confirmer les moteurs réellement visés pour la première version intégrée.
+- [x] Confirmer les moteurs réellement visés pour la première version intégrée.
 - [ ] Vérifier les migrations, contraintes et types nécessaires sur chaque moteur retenu.
 - [ ] Ajouter des tests d’intégration isolés pour chaque moteur pris en charge.
 - [ ] Documenter les paramètres de connexion, les sauvegardes et les mises à niveau de schéma.

@@ -11,11 +11,9 @@
 from __future__ import annotations
 
 from .base import AuthBackend
-from .internal import InternalAuthBackend
 from .oidc import OIDCAuthBackend
 
 __all__ = [
     "AuthBackend",
-    "InternalAuthBackend",
     "OIDCAuthBackend",
 ]

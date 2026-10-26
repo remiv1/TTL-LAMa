@@ -12,7 +12,7 @@ from abc import ABC, abstractmethod
 
 from flask import Response
 
-from auth.models import User
+from auth.models import UnifiedUser
 
 
 class AuthBackend(ABC):
@@ -29,34 +29,15 @@ class AuthBackend(ABC):
     """
 
     @abstractmethod
-    def authenticate(self, credentials: dict[str, object] | None = None) -> User | None:
+    def authenticate(self, credentials: dict[str, object] | None = None) -> UnifiedUser | None:
         """Authenticate credentials provided by the user.
         
         :param credentials: Dictionary containing the user's credentials.
         :type credentials: dict[str, object] | None
         :return: The authenticated user or None if authentication fails.
-        :rtype: User | None
+        :rtype: UnifiedUser | None
         """
-
-    @abstractmethod
-    def get_current_user(self, session_token: str | None = None) -> User | None:
-        """Return the identity associated with the current session.
-        
-        :param session_token: Session token to identify the current user.
-        :type session_token: str | None
-        :return: The current user or None if no session is active.
-        :rtype: User | None
-        """
-
-    @abstractmethod
-    def logout(self, session_token: str | None = None) -> None:
-        """Revoke the current session if it exists.
-        
-        :param session_token: Session token to revoke.
-        :type session_token: str | None
-        :return: None
-        :rtype: None
-        """
+        raise NotImplementedError
 
     def begin_login(self) -> Response | None:
         """Start an interactive login flow if supported by the backend.
@@ -66,10 +47,10 @@ class AuthBackend(ABC):
         """
         return None
 
-    def complete_login(self) -> User:
+    def complete_login(self) -> UnifiedUser:
         """Complete an interactive login flow if supported by the backend.
 
         :return: The authenticated user after completing the login flow.
-        :rtype: User
+        :rtype: UnifiedUser
         """
         raise NotImplementedError

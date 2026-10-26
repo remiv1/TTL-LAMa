@@ -31,6 +31,7 @@ if TYPE_CHECKING:
     from .profiles import Profile
     from .login_state import LoginState
     from .oidc import OIDCUser
+    from .leases import Lease
 
 _USER_ID = "Unique identifier of the user"
 
@@ -138,6 +139,11 @@ class User(Base):
         secondary="profile_users",
         back_populates="users",
         viewonly=True,
+    )
+    leases: Mapped[list["Lease"]] = relationship(
+        "Lease",
+        back_populates="user",
+        uselist=True,
     )
     login_state: Mapped["LoginState"] = relationship(
         "LoginState",

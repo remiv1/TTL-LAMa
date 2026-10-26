@@ -7,6 +7,44 @@ BLUE='\033[0;34m'
 RESET='\033[0m'
 COMPOSE_FILE='compose.test.yml'
 LOG_FILE='build.log'
+ONLY_SQLITE=false
+WITHOUT_OIDC=false
+TEST_SELECTOR=''
+CONTAINERS_TO_DOWN=''
+export PODMAN_COMPOSE_WARNING_LOGS=false
+
+usage() {
+  printf 'Usage: %s [--only-sqlite] [--without-oidc] [-t tests.module::test_name]\n' "$0"
+}
+
+while (($#)); do
+  case "$1" in
+    --only-sqlite)
+      ONLY_SQLITE=true
+      ;;
+    --without-oidc)
+      WITHOUT_OIDC=true
+      ;;
+    -t)
+      if (($# < 2)) || [[ -z "$2" || "$2" == -* ]]; then
+        usage
+        exit 2
+      fi
+      TEST_SELECTOR="$2"
+      shift
+      ;;
+    -h|--help)
+      usage
+      exit 0
+      ;;
+    *)
+      printf 'Option inconnue : %s\n' "$1" >&2
+      usage >&2
+      exit 2
+      ;;
+  esac
+  shift
+done
 
 # Helper to print section headers with colors
 section() {
@@ -47,7 +85,7 @@ build_containers() {
   podman compose -f "$COMPOSE_FILE" build > "$LOG_FILE" 2>&1
   code=$?
   if (( code != 0 )); then
-    echo "Erreur lors de la construction des conteneurs. Voir $LOG_FILE pour les détails."
+    printf "${RED}%s${RESET}\n" "Erreur lors de la construction des conteneurs. Voir $LOG_FILE pour les détails."
     cat "$LOG_FILE"
     rm -f "$LOG_FILE"
     exit "$code"
@@ -59,11 +97,25 @@ launch_database() {
   podman compose -f "$COMPOSE_FILE" up -d postgres mariadb mysql > "$LOG_FILE" 2>&1
   code=$?
   if (( code != 0 )); then
-    echo "Erreur lors du lancement des bases de données. Voir $LOG_FILE pour les détails."
+    printf "${RED}%s${RESET}\n" "Erreur lors du lancement des bases de données. Voir $LOG_FILE pour les détails."
     cat "$LOG_FILE"
     rm -f "$LOG_FILE"
     exit "$code"
   fi
+  CONTAINERS_TO_DOWN="$CONTAINERS_TO_DOWN postgres mariadb mysql"
+}
+
+launch_oidc_provider() {
+  # Launch the OIDC provider container using podman compose and log the output to a file
+  podman compose -f "$COMPOSE_FILE" up -d dex > "$LOG_FILE" 2>&1
+  code=$?
+  if (( code != 0 )); then
+    printf "${RED}%s${RESET}\n" "Erreur lors du lancement de l'OIDC provider. Voir $LOG_FILE pour les détails."
+    cat "$LOG_FILE"
+    rm -f "$LOG_FILE"
+    exit "$code"
+  fi
+  CONTAINERS_TO_DOWN="$CONTAINERS_TO_DOWN dex"
 }
 
 check_databases_are_up() {
@@ -103,12 +155,29 @@ check_databases_are_up() {
   wait "$pid_mysql"
 }
 
+check_oidc_provider() {
+  # Check if the OIDC provider is up and ready
+  while ! podman compose -f "$COMPOSE_FILE" exec dex wget -q -O /dev/null http://127.0.0.1:5556/dex/healthz > "$LOG_FILE" 2>&1; do
+    sleep 1
+  done
+  printf "${GREEN}%s${RESET}\n" "OIDC Provider est prêt."
+}
+
 launch_tests() {
-  # Launch the test container using podman compose and log the output to a file
-  podman compose -f "$COMPOSE_FILE" up \
-    --abort-on-container-exit \
-    --exit-code-from tests \
-    --no-deps tests
+  # Launch only the test container with the requested pytest selection.
+  local -a pytest_args=("-v" "--color=yes" "-ra" "-p" "no:cacheprovider")
+  local -a compose_args=(run --rm --no-deps)
+  if [[ -n "$TEST_SELECTOR" ]]; then
+    pytest_args+=("$TEST_SELECTOR")
+  fi
+  if [[ "$WITHOUT_OIDC" == true ]]; then
+    pytest_args+=("-m" "not oidc")
+  fi
+  if [[ "$ONLY_SQLITE" == true ]]; then
+    compose_args+=(-e "TTL_LAMA_TEST_DATABASES=sqlite")
+  fi
+  podman compose -f "$COMPOSE_FILE" "${compose_args[@]}" tests \
+    python -m pytest "${pytest_args[@]}"
   code=$?
   if (( code != 0 )); then
     echo "Erreur lors du lancement des tests. Voir $LOG_FILE pour les détails."
@@ -117,7 +186,6 @@ launch_tests() {
     exit "$code"
   fi
   rm -f "$LOG_FILE"
-  podman compose -f "$COMPOSE_FILE" down
 }
 
 printf "\n"
@@ -126,14 +194,52 @@ result build_containers "[PODMAN BUILD] Conteneurs construits avec succès." "É
 printf "\n"
 
 section "$BLUE" "Lancement des bases de données"
-result launch_database "[DATABASES] Bases de données lancées avec succès." "Échec du lancement des bases de données."
+if [[ "$ONLY_SQLITE" == false ]]; then
+  result launch_database "[DATABASES] Bases de données lancées avec succès." "Échec du lancement des bases de données."
+else
+  printf "${YELLOW}%s${RESET}\n" "[DATABASES] Seule SQLite sera utilisée."
+fi
+printf "\n"
+
+section "$BLUE" "Lancement de l'OIDC Provider"
+if [[ "$WITHOUT_OIDC" == false ]]; then
+  result launch_oidc_provider "[OIDC] OIDC Provider lancé avec succès." "Échec du lancement de l'OIDC Provider."
+else
+  printf "${YELLOW}%s${RESET}\n" "[OIDC] Lancement de Dex ignoré."
+fi
 printf "\n"
 
 section "$YELLOW" "Vérification des bases de données"
-result check_databases_are_up "[DATABASES] Bases de données prêtes." "Échec de la vérification des bases de données."
+if [[ "$ONLY_SQLITE" == false ]]; then
+  result check_databases_are_up "[DATABASES] Bases de données prêtes." "Échec de la vérification des bases de données."
+else
+  printf "${YELLOW}%s${RESET}\n" "[DATABASES] Vérification des moteurs externes ignorée."
+fi
+printf "\n"
+
+section "$YELLOW" "Vérification de l'OIDC Provider"
+if [[ "$WITHOUT_OIDC" == false ]]; then
+  result check_oidc_provider "[OIDC] OIDC Provider prêt." "Échec de la vérification de l'OIDC Provider."
+else
+  printf "${YELLOW}%s${RESET}\n" "[OIDC] Vérification de Dex ignorée."
+fi
 printf "\n"
 
 section "$RED" "Lancement des tests"
 result launch_tests "[TESTS] Tests exécutés avec succès." "Échec de l’exécution des tests."
+printf "\n"
 
-
+if [[ -n "$CONTAINERS_TO_DOWN" ]]; then
+  podman compose -f "$COMPOSE_FILE" down $CONTAINERS_TO_DOWN > /dev/null 2>&1
+  code=$?
+  if (( code != 0 )); then
+    printf "${RED}%s${RESET}\n" "Erreur lors de l'arrêt des conteneurs. Voir $LOG_FILE pour les détails."
+    cat "$LOG_FILE"
+    rm -f "$LOG_FILE"
+    exit "$code"
+  else
+    printf "${GREEN}%s${RESET}\n" "Conteneurs arrêtés avec succès."
+    printf "\n"
+  fi
+fi
+export PODMAN_COMPOSE_WARNING_LOGS=true

@@ -29,10 +29,32 @@ class Settings(YamlSettingsBase):
 
     .. attributes::
         - ``FLASK_ENV``: Application environment.
+        - ``DEBUG``: Enable or disable debug mode.
+        - ``SECRET_KEY``: Flask secret key.
+        - ``SECRET_KEY_FILE``: Path to the file containing the Flask secret key.
         - ``AUTH_MODE``: Internal or external authentication mode.
+        - ``ADMIN_USERNAME``: Administrator username.
+        - ``ADMIN_PASSWORD``: Administrator password.
+        - ``ADMIN_PASSWORD_FILE``: Path to the file containing the administrator password.
         - ``OIDC_ISSUER``: External identity provider issuer.
+        - ``OIDC_CLIENT_ID``: External identity provider client ID.
+        - ``OIDC_CLIENT_SECRET``: External identity provider client secret.
+        - ``OIDC_CLIENT_SECRET_FILE``: Path to the file containing the external identity provider client secret.
+        - ``OIDC_REDIRECT_URI``: External identity provider redirect URI.
+        - ``ACCESS_PROFILES_FILE``: Path to the access profiles file.
+        - ``AUTH_COOKIE_NAME``: Authentication cookie name.
+        - ``SERVER_HOST``: Server host address.
+        - ``SERVER_PORT``: Server port number.
+        - ``SESSION_LIFETIME``: Session lifetime in seconds.
         - ``SESSION_COOKIE_NAME``: Flask session cookie name.
         - ``ENFORCE_SECURE_CONNECTION``: Whether HTTPS is required.
+        - ``SESSION_COOKIE_HTTPONLY``: Whether the session cookie is HTTP-only.
+        - ``SESSION_COOKIE_SECURE``: Whether the session cookie is secure.
+        - ``SESSION_COOKIE_SAMESITE``: SameSite attribute for the session cookie.
+        - ``SESSION_COOKIE_PATH``: Path attribute for the session cookie.
+        - ``SESSION_LIFETIME``: Session lifetime in seconds.
+        - ``MAX_CONTENT_LENGTH``: Maximum content length for requests.
+        - ``TESTING``: Enable or disable testing mode.
     """
 
     FLASK_ENV: str = Field(default="production")
@@ -59,6 +81,7 @@ class Settings(YamlSettingsBase):
     SESSION_COOKIE_SECURE: bool = True
     SESSION_COOKIE_SAMESITE: str = "Lax"
     SESSION_COOKIE_PATH: str = "/"
+    SESSION_LIFETIME: int = 3600
     MAX_CONTENT_LENGTH: int = _MAX_CONTENT_LENGTH
     TESTING: bool = Field(default=False)
 
@@ -100,6 +123,7 @@ class Settings(YamlSettingsBase):
                 "session_cookie_secure": "SESSION_COOKIE_SECURE",
                 "session_cookie_samesite": "SESSION_COOKIE_SAMESITE",
                 "session_cookie_path": "SESSION_COOKIE_PATH",
+                "session_lifetime": "SESSION_LIFETIME",
             },
             "access_profiles": {
                 "file": "ACCESS_PROFILES_FILE",

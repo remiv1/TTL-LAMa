@@ -16,8 +16,8 @@ from flask_wtf.csrf import CSRFProtect
 from sqlalchemy.orm import Session
 
 from api.config import AccessProfiles, DatabaseConfig, DatabaseSettings, FlaskSettings
-from auth.manager import AuthManager
-from auth.routes import auth_bp
+#from auth.manager import AuthManager
+#from auth.routes import auth_bp
 
 LOGGER = logging.getLogger(__name__)
 
@@ -45,19 +45,19 @@ def create_app(
     profiles = AccessProfiles.from_file(flask_settings.ACCESS_PROFILES_FILE)
     database = DatabaseConfig(database_settings)
     database.initialize()
-    AuthManager.initialize_database(database.session, flask_settings)
-    auth_manager = AuthManager(app, database.session, flask_settings)
-    if (
-        flask_settings.FLASK_ENV.lower() == "production"
-        and auth_manager.is_default_admin_password_in_use()
-    ):
-        LOGGER.warning("Le mot de passe initial de l'administrateur est encore utilisé")
+    #AuthManager.initialize_database(database.session, flask_settings)
+    #auth_manager = AuthManager(app, database.session, flask_settings)
+    # if (
+    #     flask_settings.FLASK_ENV.lower() == "production"
+    #     and auth_manager.is_default_admin_password_in_use()
+    # ):
+    #     LOGGER.warning("Le mot de passe initial de l'administrateur est encore utilisé")
     app.extensions["database_config"] = database
-    app.extensions["auth_manager"] = auth_manager
+    #app.extensions["auth_manager"] = auth_manager
     app.config["ACCESS_PROFILES"] = profiles.profiles
 
     CSRFProtect(app)
-    app.register_blueprint(auth_bp)
+    #app.register_blueprint(auth_bp)
 
     @app.after_request
     def set_security_headers(response: Response) -> Response:

@@ -23,6 +23,7 @@ from ._common import Base, TABLE_ARGS
 
 if TYPE_CHECKING:
     from .users import User
+    from .leases import Lease
 
 _DEVICE_ID = "Unique identifier of the device"
 
@@ -82,4 +83,9 @@ class Device(Base):
         "User",
         back_populates="devices",
         uselist=False,
+    )
+    leases: Mapped[list["Lease"]] = relationship(
+        "Lease",
+        back_populates="device",
+        uselist=True,
     )

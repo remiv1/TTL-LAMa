@@ -8,7 +8,7 @@
 """
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Optional
 from datetime import datetime, timezone
 from uuid import UUID
 
@@ -81,12 +81,12 @@ class Session(Base):
         nullable=False,
         comment="Timestamp when the session expires",
     )
-    revoked_at: Mapped[datetime] = mapped_column(
+    revoked_at: Mapped[Optional[datetime]] = mapped_column(
         DateTime,
         nullable=True,
         comment="Timestamp when the session was revoked",
     )
-    last_seen_at: Mapped[datetime] = mapped_column(
+    last_seen_at: Mapped[Optional[datetime]] = mapped_column(
         DateTime,
         nullable=True,
         comment="Timestamp when the session was last seen",

@@ -36,7 +36,13 @@ class Credentials(Base):
     """
 
     __tablename__ = "user_credentials"
-    __table_args__ = TABLE_ARGS
+    __table_args__ = (
+        CheckConstraint(
+            f"auth_method IN ({', '.join(f"'{m.value}'" for m in AuthMethod)})",
+            name="auth_method_check",
+        ),
+        TABLE_ARGS,
+    )
 
     id: Mapped[int] = mapped_column(
         Integer,
@@ -52,10 +58,6 @@ class Credentials(Base):
     )
     auth_method: Mapped[str] = mapped_column(
         String(50),
-        CheckConstraint(
-            f"auth_method IN ({', '.join(f"'{m.value}'" for m in AuthMethod)})",
-            name="auth_method_check"
-        ),
         nullable=False,
         comment="Authentication method of the user",
     )

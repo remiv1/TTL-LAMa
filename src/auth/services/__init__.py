@@ -9,8 +9,8 @@
 """
 from __future__ import annotations
 
-from .session_service import SessionService
-from .user_service import UserService
+from .session import SessionService
+from .user import UserService
 
 __all__ = [
     "SessionService",
