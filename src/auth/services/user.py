@@ -15,14 +15,12 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session as ORMSession
 from sqlalchemy.exc import SQLAlchemyError
 
-from api.common.db_objects import User, UserOIDCUser
+from api.common.db_objects import User, UserOIDCUser, UserCredentials
+from api.common.other_objects import AuthMethod
 
 
 if TYPE_CHECKING:
-    from ...api.common.db_objects import (
-        UserCredentials,
-        UserDevice,
-    )
+    from ...api.common.db_objects import UserDevice
 
 _WARNING_MESSAGE = "No user has been added, use add_user() first."
 
@@ -97,6 +95,32 @@ class UserService:
 
         return self._user
 
+    def create_initial_admin(self, username: str, password_hash: str) -> bool:
+        """Create the initial admin user.
+
+        :param username: The username of the initial admin.
+        :type username: str
+        :param password_hash: The hashed password of the initial admin.
+        :type password_hash: str
+
+        :return: True if the initial admin was created successfully, False otherwise.
+        :rtype: bool
+        """
+        if self.get_by_username(username) is not None:
+            return False
+        user = User(
+            username=username,
+            enabled=True,
+            is_admin=True,
+        )
+        self.add_user(user).add_credential(
+            UserCredentials(
+                auth_method=AuthMethod.INTERNAL.value,
+                hash_password=password_hash,
+            )
+        ).create()
+        return True
+
     def get_user(self) -> User:
         """Retrieve the currently added user.
 
@@ -143,6 +167,18 @@ class UserService:
             )
         )
         return self.db_session.execute(stmt).scalar_one_or_none()
+
+    def get_by_username(self, username: str) -> User | None:
+        """Retrieve a user by their username.
+
+        :param username: The username of the user to retrieve.
+        :type username: str
+
+        :return: The user object corresponding to the given username, or None if not found.
+        :rtype: User | None
+        """
+        stmt = select(User).where(User.username == username)
+        return self.db_session.scalars(stmt).one_or_none()
 
     def delete_user(self, user_id: Optional[UUID | str] = None) -> bool:
         """Delete a user by their ID, or delete the added user if no ID is provided.

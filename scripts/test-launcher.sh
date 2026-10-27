@@ -9,7 +9,7 @@ COMPOSE_FILE='compose.test.yml'
 LOG_FILE='build.log'
 ONLY_SQLITE=false
 WITHOUT_OIDC=false
-TEST_SELECTOR=''
+TEST_SELECTORS=()
 CONTAINERS_TO_DOWN=''
 export PODMAN_COMPOSE_WARNING_LOGS=false
 
@@ -30,7 +30,7 @@ while (($#)); do
         usage
         exit 2
       fi
-      TEST_SELECTOR="$2"
+      TEST_SELECTORS+=("$2")
       shift
       ;;
     -h|--help)
@@ -167,9 +167,7 @@ launch_tests() {
   # Launch only the test container with the requested pytest selection.
   local -a pytest_args=("-v" "--color=yes" "-ra" "-p" "no:cacheprovider")
   local -a compose_args=(run --rm --no-deps)
-  if [[ -n "$TEST_SELECTOR" ]]; then
-    pytest_args+=("$TEST_SELECTOR")
-  fi
+  pytest_args+=("${TEST_SELECTORS[@]}")
   if [[ "$WITHOUT_OIDC" == true ]]; then
     pytest_args+=("-m" "not oidc")
   fi

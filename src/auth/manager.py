@@ -5,6 +5,8 @@
 """
 from __future__ import annotations
 
+from flask import Response
+
 from auth.backends import AuthBackend
 from auth.models import AuthenticationResult, UnifiedUser
 from auth.services import SessionService, UserService
@@ -91,6 +93,14 @@ class AuthManager:
             is_admin=user.is_admin,
             email=user.email,
         )
+
+    def begin_login(self) -> Response | None:
+        """Initiates the login process delegating it to the backend.
+
+        :return: The response that initiates the login process, or None if not applicable.
+        :rtype: Response | None
+        """
+        return self.backend.begin_login()
 
     def logout(self, session_token: str | None) -> None:
         """Revokes the session associated with the given token.

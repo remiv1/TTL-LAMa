@@ -3,16 +3,11 @@
 Provides database settings for different database engines based on environment variables.
 """
 import os
-import uuid
 from typing import Iterator
 
 import pytest
-from flask import Flask
-from sqlalchemy import select
 
-from api.bootstrap import create_app
-from api.common.db_objects.users import User as DatabaseUser
-from api.config import FlaskSettings, DatabaseSettings
+from api.config import DatabaseSettings
 from api.config.c_databases import DbType
 
 _DATABASE_URL_ENV = {
@@ -81,27 +76,3 @@ def database_settings(
         DB_PASSWORD=database_url.password or "",
         DB_NAME=database_url.database or "",
     )
-
-@pytest.fixture
-def app(database_settings: DatabaseSettings) -> Iterator[Flask]:    # pylint: disable=W0621
-    """Provide a Flask application configured for testing."""
-    username = f"admin-{uuid.uuid4().hex[:12]}"
-    settings = FlaskSettings(
-        AUTH_MODE="internal",
-        FLASK_ENV="testing",
-        SECRET_KEY="test-secret-key-with-more-than-thirty-two-characters",
-        ADMIN_USERNAME=username,
-        ADMIN_PASSWORD="correct-horse-battery",
-        ENFORCE_SECURE_CONNECTION=False,
-        SESSION_COOKIE_SECURE=False,
-    )
-    application = create_app(settings, database_settings)
-    application.config["TEST_ADMIN_USERNAME"] = username
-    yield application
-    database = application.extensions["database_config"]
-    admin_id = database.session().scalar(
-        select(DatabaseUser.id).where(DatabaseUser.username == username)
-    )
-    if admin_id is not None:
-        application.extensions["auth_manager"].users.delete_user(admin_id)
-    application.extensions["database_config"].close()

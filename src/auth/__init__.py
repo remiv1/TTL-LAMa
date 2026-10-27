@@ -13,10 +13,29 @@
 """
 from __future__ import annotations
 
-#from .manager import AuthManager
-#from .models import User
+from .manager import AuthManager
+from .models import UnifiedUser, OIDCParams
+from .backends import InternalAuthBackend, OIDCAuthBackend
+from .services import SessionService, UserService
+from .exceptions import (
+    AccountNotFoundError,
+    AuthenticationError,
+    InvalidCredentialsError,
+    OIDCAuthenticationError,
+)
+from .routes import auth_bp
 
 __all__ = [
-    #"AuthManager",
-    #"User",
+    "AccountNotFoundError",
+    "auth_bp",
+    "AuthenticationError",
+    "AuthManager",
+    "InvalidCredentialsError",
+    "InternalAuthBackend",
+    "OIDCParams",
+    "OIDCAuthBackend",
+    "OIDCAuthenticationError",
+    "SessionService",
+    "UnifiedUser",
+    "UserService",
 ]

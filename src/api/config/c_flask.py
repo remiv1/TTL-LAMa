@@ -33,14 +33,17 @@ class Settings(YamlSettingsBase):
         - ``SECRET_KEY``: Flask secret key.
         - ``SECRET_KEY_FILE``: Path to the file containing the Flask secret key.
         - ``AUTH_MODE``: Internal or external authentication mode.
+        - ``CORS_ALLOWED_ORIGINS``: List of allowed origins for CORS.
         - ``ADMIN_USERNAME``: Administrator username.
         - ``ADMIN_PASSWORD``: Administrator password.
         - ``ADMIN_PASSWORD_FILE``: Path to the file containing the administrator password.
         - ``OIDC_ISSUER``: External identity provider issuer.
         - ``OIDC_CLIENT_ID``: External identity provider client ID.
         - ``OIDC_CLIENT_SECRET``: External identity provider client secret.
-        - ``OIDC_CLIENT_SECRET_FILE``: Path to the file containing the external identity provider client secret.
+        - ``OIDC_CLIENT_SECRET_FILE``: Path to the file containing the external identity provider
+        client secret.
         - ``OIDC_REDIRECT_URI``: External identity provider redirect URI.
+        - ``AUTH_SUCCESS_REDIRECT``: URL to redirect to after successful authentication.
         - ``ACCESS_PROFILES_FILE``: Path to the access profiles file.
         - ``AUTH_COOKIE_NAME``: Authentication cookie name.
         - ``SERVER_HOST``: Server host address.
@@ -63,6 +66,7 @@ class Settings(YamlSettingsBase):
     SECRET_KEY_FILE: Path | None = Field(default=None, repr=False)
     LOG_LEVEL: str = Field(default="info")
     AUTH_MODE: Literal["internal", "external"] = "internal"
+    CORS_ALLOWED_ORIGINS: list[str] = Field(default_factory=list)
     ADMIN_USERNAME: str = "admin"
     ADMIN_PASSWORD: str = Field(default="", repr=False)
     ADMIN_PASSWORD_FILE: Path | None = Field(default=None, repr=False)
@@ -71,6 +75,7 @@ class Settings(YamlSettingsBase):
     OIDC_CLIENT_SECRET: str = Field(default="", repr=False)
     OIDC_CLIENT_SECRET_FILE: Path | None = Field(default=None, repr=False)
     OIDC_REDIRECT_URI: str = ""
+    AUTH_SUCCESS_REDIRECT: str = ""
     ACCESS_PROFILES_FILE: Path | None = None
     AUTH_COOKIE_NAME: str = "ttl-lama_session"
     SERVER_HOST: str = "0.0.0.0"
@@ -79,7 +84,7 @@ class Settings(YamlSettingsBase):
     ENFORCE_SECURE_CONNECTION: bool = True
     SESSION_COOKIE_HTTPONLY: bool = True
     SESSION_COOKIE_SECURE: bool = True
-    SESSION_COOKIE_SAMESITE: str = "Lax"
+    SESSION_COOKIE_SAMESITE: Literal["Lax", "Strict", "None"] = "Lax"
     SESSION_COOKIE_PATH: str = "/"
     SESSION_LIFETIME: int = 3600
     MAX_CONTENT_LENGTH: int = _MAX_CONTENT_LENGTH
@@ -115,6 +120,8 @@ class Settings(YamlSettingsBase):
             "auth": {
                 "mode": "AUTH_MODE",
                 "cookie_name": "AUTH_COOKIE_NAME",
+                "allowed_origins": "CORS_ALLOWED_ORIGINS",
+                "success_redirect": "AUTH_SUCCESS_REDIRECT",
             },
             "security": {
                 "enforce_secure_connection": "ENFORCE_SECURE_CONNECTION",
@@ -197,8 +204,11 @@ class Settings(YamlSettingsBase):
         """
         if not self.SESSION_COOKIE_HTTPONLY:
             raise ValueError("SESSION_COOKIE_HTTPONLY doit rester activé")
-        if self.SESSION_COOKIE_SAMESITE != "Lax":
-            raise ValueError("SESSION_COOKIE_SAMESITE doit être Lax")
+        if (
+            self.SESSION_COOKIE_SAMESITE == "None"
+            and not self.SESSION_COOKIE_SECURE
+        ):
+            raise ValueError("SESSION_COOKIE_SAMESITE must be activated with SameSite=None")
         if self.SESSION_COOKIE_PATH != "/":
             raise ValueError("SESSION_COOKIE_PATH doit être /")
         if self.SESSION_COOKIE_SECURE != self.ENFORCE_SECURE_CONNECTION:

@@ -52,6 +52,19 @@ auth:
   admin:
     username: admin
     password: admin
+  oidc:
+    issuer: your_issuer_url
+    client_id: your_client_id
+    client_secret_file: /run/secrets/oidc_client_secret
+    redirect_uri: /auth/callback
+  allowed_origins: []
+  success_redirect: your_auth_success_redirect_url
+  password_hasher:
+    time_cost: 3
+    memory_cost: 65536 # 64 MiB
+    parallelism: 4
+    hash_len: 32
+    salt_len: 16
 
 database:
   type: sqlite
@@ -61,11 +74,30 @@ database:
 security:
   enforce_secure_connection: false
   session_cookie_name: session
+  session_cookie_httponly: true
   session_cookie_secure: false
+  session_cookie_samesite: Lax
+  session_cookie_path: /
+  session_lifetime: 3600
 
 access_profiles:
   file: /etc/ttl-lama/access-profiles.yml
 ```
+
+### Argon2id Parameters
+
+`auth.password_hasher` configures the Argon2id hasher used by internal authentication. The following values are starting points, not performance guarantees or enforced limits. Benchmark them on the deployment hardware under its expected load.
+
+| Indicative profile | Hardware | `time_cost` | `memory_cost` (KiB) | `parallelism` |
+| --- | --- | ---: | ---: | ---: |
+| Resource-constrained | 1 vCPU, 1 GiB RAM | 2 | 19,456 | 1 |
+| Standard | 2 vCPU, 4 GiB RAM | 3 | 65,536 | 4 |
+| Hardened | 4 vCPU, 16 GiB RAM | 3 | 131,072 | 4 |
+| High capacity | 8 vCPU, 32 GiB RAM | 3 | 262,144 | 4 |
+
+`hash_len: 32` and `salt_len: 16` can remain constant. `memory_cost` is in KiB and applies to each simultaneous verification: four calculations at the standard profile require about 256 MiB for Argon2id, in addition to the application's and system's memory. Measure latency and memory under load before choosing a profile. The `TTL_LAMA_TIME_COST`, `TTL_LAMA_MEMORY_COST`, `TTL_LAMA_PARALLELISM`, `TTL_LAMA_HASH_LEN`, and `TTL_LAMA_SALT_LEN` environment variables override the corresponding YAML values.
+
+Settings are read at startup. Changing them does not alter passwords already stored; verification uses the parameters encoded in each hash. New password hashes must use the same configured policy.
 
 Supported database engines are `sqlite`, `postgresql`, `mariadb`, and `mysql`. SQLite is the standalone default. An external database requires `database.host`, `database.name`, `database.user`, and `database.password_file`; `database.port` is optional and defaults to the engine's standard port ; `database.schema` is also required for some engines like postgresql. `TTL_LAMA_...` environment variables remain available as overrides; for example, `TTL_LAMA_AUTH_MODE` overrides `auth.mode`.
 

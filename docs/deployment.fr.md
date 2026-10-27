@@ -52,6 +52,19 @@ auth:
   admin:
     username: admin
     password: admin
+  oidc:
+    issuer: your_issuer_url
+    client_id: your_client_id
+    client_secret_file: /run/secrets/oidc_client_secret
+    redirect_uri: /auth/callback
+  allowed_origins: []
+  success_redirect: your_auth_success_redirect_url
+  password_hasher:
+    time_cost: 3
+    memory_cost: 65536 # 64 MiB
+    parallelism: 4
+    hash_len: 32
+    salt_len: 16
 
 database:
   type: sqlite
@@ -61,11 +74,30 @@ database:
 security:
   enforce_secure_connection: false
   session_cookie_name: session
+  session_cookie_httponly: true
   session_cookie_secure: false
+  session_cookie_samesite: Lax
+  session_cookie_path: /
+  session_lifetime: 3600
 
 access_profiles:
   file: /etc/ttl-lama/access-profiles.yml
 ```
+
+### Paramètres Argon2id
+
+`auth.password_hasher` configure le hasher Argon2id utilisé par l’authentification interne. Les valeurs suivantes sont des points de départ, pas des garanties de performance ni des plafonds imposés. Elles doivent être mesurées sur le matériel et sous la charge réelle de chaque déploiement.
+
+| Profil indicatif | Matériel | `time_cost` | `memory_cost` (KiB) | `parallelism` |
+| --- | --- | ---: | ---: | ---: |
+| Ressources limitées | 1 vCPU, 1 GiB RAM | 2 | 19 456 | 1 |
+| Standard | 2 vCPU, 4 GiB RAM | 3 | 65 536 | 4 |
+| Renforcé | 4 vCPU, 16 GiB RAM | 3 | 131 072 | 4 |
+| Haute capacité | 8 vCPU, 32 GiB RAM | 3 | 262 144 | 4 |
+
+`hash_len: 32` et `salt_len: 16` peuvent rester constants. `memory_cost` est exprimé en KiB et s’applique à chaque vérification simultanée : quatre calculs au profil standard demandent environ 256 MiB pour Argon2id, en plus de la mémoire de l’application et du système. Mesurez la latence et la mémoire sous charge avant de retenir un profil. Les variables `TTL_LAMA_TIME_COST`, `TTL_LAMA_MEMORY_COST`, `TTL_LAMA_PARALLELISM`, `TTL_LAMA_HASH_LEN` et `TTL_LAMA_SALT_LEN` remplacent les valeurs YAML correspondantes.
+
+Les paramètres sont lus au démarrage. Leur modification ne change pas les mots de passe déjà stockés; la vérification utilise les paramètres encodés dans chaque hash. La création de nouveaux hashes doit utiliser la même politique configurée.
 
 Les moteurs pris en charge sont `sqlite`, `postgresql`, `mariadb` et `mysql`. SQLite est le choix autonome par défaut. Une base externe nécessite `database.host`, `database.name`, `database.user` et `database.password_file`; `database.port` est facultatif et utilise le port standard du moteur; `database.schema` est également requis pour certains moteurs comme postgresql. Les variables d’environnement préfixées par `TTL_LAMA_` restent disponibles pour les surcharges ; par exemple, `TTL_LAMA_AUTH_MODE` remplace `auth.mode`.
 

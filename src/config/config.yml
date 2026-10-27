@@ -18,7 +18,15 @@ auth:
     issuer: your_issuer_url
     client_id: your_client_id
     client_secret_file: /run/secrets/oidc_client_secret
-    redirect_uri: your_redirect_uri
+    redirect_uri: /auth/callback
+  allowed_origins: []
+  success_redirect: your_auth_success_redirect_url
+  password_hasher:
+    time_cost: 3
+    memory_cost: 65536 # 64 MiB
+    parallelism: 4
+    hash_len: 32
+    salt_len: 16
 
 database:
   type: sqlite
