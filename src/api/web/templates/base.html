@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="{{ language }}">
+    <head>
+        <meta charset="utf-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <meta name="csrf-token" content="{{ csrf_token() }}">
+        <meta name="htmx-config" content='{"includeIndicatorStyles":false}'>
+        <title>{{ page_title|default(text.brand) }} · {{ text.brand }}</title>
+        <link rel="stylesheet" href="{{ url_for('web.static', filename='css/main.css') }}">
+        <script src="{{ url_for('web.static', filename='js/htmx.min.js') }}" defer></script>
+        <script src="{{ url_for('web.static', filename='js/app.js') }}" defer></script>
+    </head>
+    <body hx-boost="true" hx-target="#main-content" hx-swap="innerHTML">
+        <a class="skip-link" href="#main-content">{{ text.skip_content }}</a>
+        <header class="site-header">
+            <a class="brand" href="{{ url_for('web.index') }}" aria-label="{{ text.brand }}">
+                <span class="logo-placeholder logo-placeholder--icon" aria-hidden="true"></span>
+                <span>{{ text.brand }}</span>
+            </a>
+            <div class="header-actions">
+                <form class="language-switch" action="{{ url_for('web.set_language') }}" method="post" aria-label="{{ text.language }}" hx-boost="false">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <input type="hidden" name="next" value="{{ request.full_path }}">
+                    <button type="submit" name="language" value="en" aria-pressed="{{ 'true' if language == 'en' else 'false' }}">EN</button>
+                    <button type="submit" name="language" value="fr" aria-pressed="{{ 'true' if language == 'fr' else 'false' }}">FR</button>
+                </form>
+                <button class="menu-toggle" type="button" data-menu-toggle aria-controls="main-menu" aria-expanded="false" aria-label="{{ text.menu }}">
+                    <span></span>
+                    <span></span>
+                </button>
+            </div>
+            <nav class="menu-panel" id="main-menu" aria-label="{{ text.navigation }}" hidden>
+                <span class="menu-group-label">{{ text.authentication }}</span>
+                {% if g.get('current_user') %}
+                <form action="{{ url_for('web.logout') }}" method="post" hx-boost="false">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <button class="menu-link-button" type="submit">{{ text.sign_out }}</button>
+                </form>
+                {% else %}
+                <a href="{{ url_for('auth.login') }}" hx-boost="false">{{ text.sign_in }}</a>
+                {% endif %}
+                <span class="menu-group-label">{{ text.usage }}</span>
+                <a href="{{ url_for('web.account') }}">{{ text.account }}</a>
+                <a href="{{ url_for('web.show_section', section_name='devices') }}">{{ text.devices }}</a>
+                <a href="{{ url_for('web.show_section', section_name='leases') }}">{{ text.leases }}</a>
+                <a href="{{ url_for('web.show_section', section_name='profiles') }}">{{ text.profiles }}</a>
+            </nav>
+        </header>
+        <p class="visually-hidden" data-page-announcer aria-live="polite"></p>
+        <main class="page-shell" id="main-content" tabindex="-1">
+            {% block content %}{% endblock %}
+        </main>
+        <footer class="site-footer">
+            <span class="logo-placeholder logo-placeholder--small" aria-hidden="true"></span>
+            <p>{{ text.footer }}</p>
+        </footer>
+    </body>
+</html>

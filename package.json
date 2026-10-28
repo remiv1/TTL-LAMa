@@ -1,0 +1,20 @@
+{
+  "name": "ttl-lama-web",
+  "private": true,
+  "scripts": {
+    "build:css": "sass --no-source-map src/api/web/static/scss/main.scss src/api/web/static/css/main.css",
+    "copy:vendor": "mkdir -p src/api/web/static/js src/api/web/static/fonts && cp node_modules/htmx.org/dist/htmx.min.js src/api/web/static/js/htmx.min.js && cp node_modules/@fontsource/ibm-plex-sans/files/ibm-plex-sans-latin-400-normal.woff2 src/api/web/static/fonts/ibm-plex-sans-400.woff2 && cp node_modules/@fontsource/ibm-plex-sans/files/ibm-plex-sans-latin-500-normal.woff2 src/api/web/static/fonts/ibm-plex-sans-500.woff2 && cp node_modules/@fontsource/ibm-plex-sans/files/ibm-plex-sans-latin-600-normal.woff2 src/api/web/static/fonts/ibm-plex-sans-600.woff2 && cp node_modules/@fontsource/ibm-plex-sans/files/ibm-plex-sans-latin-700-normal.woff2 src/api/web/static/fonts/ibm-plex-sans-700.woff2",
+    "build": "npm run build:css && npm run copy:vendor"
+  },
+  "devDependencies": {
+    "@fontsource/ibm-plex-sans": "^5.2.6",
+    "htmx.org": "^2.0.4",
+    "sass": "^1.106.1"
+  },
+  "dependencies": {
+    "htmx": "^0.0.2"
+  },
+  "allowScripts": {
+    "@parcel/watcher@2.6.0": true
+  }
+}

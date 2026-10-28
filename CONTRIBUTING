@@ -34,6 +34,10 @@ Contributions should favor:
 
 Avoid introducing abstractions or complexity that do not address a concrete need.
 
+## Web Assets
+
+The web interface uses SCSS and locally served htmx. After changing its sources, run `npm ci` and `npm run build` from the repository root. The compiled CSS and copied vendor assets are stored under `src/api/web/static/` and are included in the application image.
+
 ## Commits
 
 Short, descriptive commit messages are recommended, for example:

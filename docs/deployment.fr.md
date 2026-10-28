@@ -17,15 +17,25 @@ TTL-LAMa utilise une configuration déclarative. La configuration de l’infrast
 3. des variables d’environnement `TTL_LAMA_...`, prioritaires sur le YAML ;
 4. des secrets montés dans le conteneur et référencés par un paramètre `_FILE`.
 
-Le Compose d’exécution lit le fichier `.env` présent sur l’hôte et injecte ses variables dans le processus du conteneur (`env_file`). Ce fichier n’est ni copié dans l’image ni envoyé dans le contexte de build ; `.dockerignore` et `.gitignore` l’excluent. Le modèle [.env.example](../.env.example) peut être copié puis complété pour les surcharges nécessaires. Les valeurs absentes continuent d’utiliser le YAML intégré.
+Pour transmettre des surcharges facultatives, utilisez `podman run --env-file .env`. Le fichier `.env` reste sur l’hôte et n’est ni copié dans l’image ni envoyé dans le contexte de build ; `.dockerignore` et `.gitignore` l’excluent. Le modèle [.env.example](../.env.example) peut être copié puis complété. Les valeurs absentes continuent d’utiliser le YAML intégré. N’y stockez pas de secrets : montez-les séparément sous `/run/secrets/`.
 
 Pour démarrer :
 
 ```sh
 cp .env.example .env
 mkdir -p secrets
-docker compose up --build -d
+podman build -f ./src/Dockerfile -t ttl-lama:latest .
+podman volume create ttl-lama-data
+podman run -d --name ttl-lama \
+  -p 8080:8080 \
+  --env-file .env \
+  -v "/chemin/vers/config.yml:/etc/ttl-lama/config.yml:ro" \
+  -v "$PWD/secrets:/run/secrets:ro" \
+  -v ttl-lama-data:/data \
+  ttl-lama:latest
 ```
+
+Remplacez `/chemin/vers/config.yml` par le chemin absolu de votre configuration. Si vous souhaitez utiliser le fichier YAML intégré à l’image, omettez son montage. Le volume nommé `ttl-lama-data` conserve la base SQLite et la clé Flask générée entre les redémarrages. Pour arrêter puis supprimer le conteneur sans supprimer les données : `podman stop ttl-lama` puis `podman rm ttl-lama`.
 
 Le modèle intégré active l’authentification interne en développement : `DEBUG` est activé, les connexions HTTP sont autorisées et les cookies ne sont pas marqués `Secure`. Le mot de passe initial du compte `admin` est `admin`. Pour une première initialisation en production, remplacez-le dans la configuration avant le démarrage. Cette valeur sert uniquement à créer le compte : changer la configuration ensuite ne modifie pas le mot de passe déjà stocké.
 
@@ -175,15 +185,13 @@ Le contenu des secrets montés est lu au démarrage. En production, la clé Flas
 
 Le processus applicatif s’exécute sans privilèges root. Aucun privilège WireGuard n’est ajouté tant que le backend correspondant n’est pas implémenté.
 
-Le fichier [compose.yml](../compose.yml) utilise un volume nommé pour `/data`, monte `secrets/` en lecture seule et transmet le `.env` de l’hôte au conteneur.
-
 ## Tests d’intégration des bases
 
 Le Compose dédié lance les tests d’authentification et de persistance contre SQLite, PostgreSQL, MariaDB et MySQL :
 
 ```sh
-docker compose -f compose.test.yml up --build --abort-on-container-exit --exit-code-from tests
-docker compose -f compose.test.yml down
+podman compose -f compose.test.yml up --build --abort-on-container-exit --exit-code-from tests
+podman compose -f compose.test.yml down
 ```
 
 Les services de base de données de ce Compose sont réservés aux tests et n’utilisent aucun volume persistant.

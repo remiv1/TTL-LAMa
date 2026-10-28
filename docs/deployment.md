@@ -17,15 +17,25 @@ TTL-LAMa uses declarative configuration. Infrastructure configuration is deliber
 3. `TTL_LAMA_...` environment variables, which override YAML values;
 4. secrets mounted in the container and referenced with a `_FILE` setting.
 
-The runtime Compose configuration reads the host-side `.env` file and injects its variables into the container process using `env_file`. The file is neither copied into the image nor sent in the build context; `.dockerignore` and `.gitignore` exclude it. Copy [.env.example](../.env.example) to `.env` and add only the overrides you need. Unset values continue to come from the embedded YAML configuration.
+Use `podman run --env-file .env` to pass optional overrides. The `.env` file stays on the host and is neither copied into the image nor sent in the build context; `.dockerignore` and `.gitignore` exclude it. Copy [.env.example](../.env.example) to `.env` and add only the overrides you need. Unset values continue to come from the embedded YAML configuration. Do not store secrets in `.env`; mount them separately under `/run/secrets/`.
 
 Start the service with:
 
 ```sh
 cp .env.example .env
 mkdir -p secrets
-docker compose up --build -d
+podman build -f ./src/Dockerfile -t ttl-lama:latest .
+podman volume create ttl-lama-data
+podman run -d --name ttl-lama \
+  -p 8080:8080 \
+  --env-file .env \
+  -v "/path/to/config.yml:/etc/ttl-lama/config.yml:ro" \
+  -v "$PWD/secrets:/run/secrets:ro" \
+  -v ttl-lama-data:/data \
+  ttl-lama:latest
 ```
+
+Replace `/path/to/config.yml` with the absolute path to your configuration file. Omit its mount to use the YAML file embedded in the image. The named `ttl-lama-data` volume preserves the SQLite database and generated Flask key across container restarts. To stop and remove the container without removing its data, run `podman stop ttl-lama` followed by `podman rm ttl-lama`.
 
 The embedded configuration enables internal authentication in development: `DEBUG` is enabled, HTTP connections are allowed, and cookies are not marked `Secure`. The initial `admin` account password is `admin`. For the first production initialization, replace it in the configuration before startup. This value is used only to create the account; changing the configuration later does not change the password already stored.
 
@@ -175,15 +185,13 @@ Mounted secret contents are read at startup. In production, the Flask key must c
 
 The application process runs without root privileges. No WireGuard privilege is added until that backend is implemented.
 
-The [compose.yml](../compose.yml) file uses a named volume for `/data`, mounts `secrets/` read-only, and passes the host `.env` values into the container.
-
 ## Database Integration Tests
 
 The dedicated Compose stack runs authentication and persistence tests against SQLite, PostgreSQL, MariaDB, and MySQL:
 
 ```sh
-docker compose -f compose.test.yml up --build --abort-on-container-exit --exit-code-from tests
-docker compose -f compose.test.yml down
+podman compose -f compose.test.yml up --build --abort-on-container-exit --exit-code-from tests
+podman compose -f compose.test.yml down
 ```
 
 The database services in this Compose file are test-only and have no persistent volumes.

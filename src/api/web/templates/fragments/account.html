@@ -1,0 +1,21 @@
+<section class="page-heading">
+    <p class="eyebrow">{{ text.authentication }}</p>
+    <h1 id="page-title">{{ text.account_title }}</h1>
+    <p>{{ text.session_active }}</p>
+</section>
+<section class="account-panel">
+    <dl class="account-list">
+        <dt>{{ text.username }}</dt>
+        <dd>{{ user.username }}</dd>
+        <dt>{{ text.user_id }}</dt>
+        <dd>{{ user.id }}</dd>
+        <dt>{{ text.email }}</dt>
+        <dd>{{ user.email or text.not_provided }}</dd>
+        <dt>{{ text.role }}</dt>
+        <dd>{{ text.administrator if user.is_admin else text.user }}</dd>
+    </dl>
+    <form action="{{ url_for('web.logout') }}" method="post" hx-boost="false">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <button class="text-action" type="submit">{{ text.sign_out }}</button>
+    </form>
+</section>

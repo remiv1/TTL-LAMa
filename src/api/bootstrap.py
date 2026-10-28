@@ -29,6 +29,7 @@ from api.config import (
     PasswordHasherSettings,
 )
 from api.v1 import api_v1
+from api.web import web
 from auth import (
     auth_bp,
     OIDCAuthBackend,
@@ -143,7 +144,7 @@ def _register_blueprints(app: Flask) -> None:
     # Exempt the API v1 blueprint from CSRF protection. These routes are protected
     # by other means, such as authentication and authorization mechanisms.
     csrf.exempt(api_v1) # NOSONAR
-    for blueprint in (auth_bp, api_v1):
+    for blueprint in (auth_bp, api_v1, web):
         app.register_blueprint(blueprint)
 
 
@@ -156,7 +157,10 @@ def _register_security_headers(app: Flask, settings: FlaskSettings) -> None:
         response.headers["X-Frame-Options"] = "DENY"
         response.headers["Referrer-Policy"] = "no-referrer"
         response.headers["Content-Security-Policy"] = (
-            "default-src 'none'; frame-ancestors 'none'; base-uri 'none'"
+            "default-src 'none'; script-src 'self'; style-src 'self'; "
+            "img-src 'self' data:; font-src 'self'; connect-src 'self'; "
+            "form-action 'self'; base-uri 'self'; object-src 'none'; "
+            "frame-ancestors 'none'"
         )
         if settings.ENFORCE_SECURE_CONNECTION:
             response.headers["Strict-Transport-Security"] = "max-age=31536000"

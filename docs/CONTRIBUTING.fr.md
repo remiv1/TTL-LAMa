@@ -34,6 +34,10 @@ Les contributions doivent privilégier :
 
 Évitez d’introduire une abstraction ou une complexité qui ne répond pas à un besoin concret.
 
+## Assets web
+
+L’interface web utilise du SCSS et une copie locale de htmx. Après modification des sources, exécutez `npm ci` puis `npm run build` à la racine du dépôt. Le CSS compilé et les dépendances copiées sont conservés dans `src/api/web/static/` et intégrés à l’image applicative.
+
 ## Commits
 
 Des messages de commit courts et explicites sont recommandés, par exemple :
