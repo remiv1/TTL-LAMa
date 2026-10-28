@@ -11,21 +11,26 @@
 """
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Optional
 from uuid import UUID
-from datetime import datetime, timezone
+from datetime import datetime
 
-from sqlalchemy import String, Integer, ForeignKey, DateTime
+from sqlalchemy import Integer, ForeignKey, DateTime
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from ._common import Base, TABLE_ARGS
+from ._common import (
+    Base,
+    TABLE_ARGS,
+    created_at_column,
+    user_id_column,
+    revoked_at_column,
+    numerical_pk_column,
+)
 
 if TYPE_CHECKING:
     from .devices import Device
     from .users import User
     from .profiles import Profile, ProfileUser
-
-_LEASE_ID = "Unique identifier of the lease"
 
 class Lease(Base):
     """Represents a lease in the database.
@@ -45,49 +50,28 @@ class Lease(Base):
     __tablename__ = "leases"
     __table_args__ = TABLE_ARGS
 
-    id: Mapped[int] = mapped_column(
-        Integer,
-        primary_key=True,
-        index=True,
-        comment=_LEASE_ID,
-    )
+    id: Mapped[int] = numerical_pk_column()
     device_id: Mapped[int] = mapped_column(
         Integer,
         ForeignKey("devices.id"),
         nullable=False,
         comment="Unique identifier of the device associated with the lease",
     )
-    user_id: Mapped[UUID] = mapped_column(
-        String(36),
-        ForeignKey("users.id"),
-        nullable=False,
-        comment="Unique identifier of the user associated with the lease",
-    )
+    user_id: Mapped[UUID] = user_id_column()
     profile_user_id: Mapped[int] = mapped_column(
         Integer,
         ForeignKey("profile_users.id"),
         nullable=False,
         comment="Unique identifier of the profile user associated with the lease",
     )
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime,
-        nullable=False,
-        unique=False,
-        default=datetime.now(timezone.utc),
-        comment="Timestamp indicating when the lease was created",
-    )
+    created_at: Mapped[datetime] = created_at_column()
     ended_at: Mapped[datetime] = mapped_column(
         DateTime,
         nullable=False,
         unique=False,
         comment="Timestamp indicating when the lease ended",
     )
-    revoked_at: Mapped[datetime] = mapped_column(
-        DateTime,
-        nullable=True,
-        unique=False,
-        comment="Timestamp indicating when the lease was revoked",
-    )
+    revoked_at: Mapped[Optional[datetime]] = revoked_at_column()
 
     device: Mapped["Device"] = relationship(
         "Device",

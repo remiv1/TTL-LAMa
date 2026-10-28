@@ -5,9 +5,14 @@
 """
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 from dataclasses import dataclass, field
 
 from authlib.integrations.flask_client.apps import FlaskOAuth2App
+
+if TYPE_CHECKING:
+    from api.common.db_objects import User
 
 @dataclass
 class UnifiedUser:
@@ -26,6 +31,22 @@ class UnifiedUser:
     username: str
     is_admin: bool
     email: str | None = None
+
+    @staticmethod
+    def from_db_user(db_user: User) -> UnifiedUser:
+        """Create a `UnifiedUser` instance from a database user object.
+
+        :param db_user: The database user object.
+        :type db_user: User
+        :return: The corresponding `UnifiedUser` instance.
+        :rtype: UnifiedUser
+        """
+        return UnifiedUser(
+            id=str(db_user.id),
+            username=db_user.username,
+            is_admin=db_user.is_admin,
+            email=db_user.email
+        )
 
 @dataclass(frozen=True)
 class AuthenticationResult:

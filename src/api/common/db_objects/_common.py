@@ -18,9 +18,12 @@
 from __future__ import annotations
 
 import logging
-from typing import Any
+from typing import Any, Optional
+from datetime import datetime
+from uuid import UUID
 
-from sqlalchemy.orm import DeclarativeBase
+from sqlalchemy import DateTime, func, String, ForeignKey, Integer
+from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 from api.config.c_databases import DbType, Settings as DatabaseSettings
 
@@ -34,6 +37,7 @@ TABLE_ARGS: dict[str, Any] = (
 _TABLE_SCHEMA = TABLE_ARGS.get("schema")
 del _database_settings
 
+_USER_ID = "Unique identifier of the user"
 
 def foreign_key_target(table_name: str, column_name: str = "id") -> str:
     """Constructs a foreign key reference compatible with the active schema.
@@ -101,3 +105,57 @@ class Base(DeclarativeBase):
             else:
                 LOGGER.debug("Unknown attribute '%s' in data dictionary", key)
         return obj
+
+def created_at_column() -> Mapped[datetime]:
+    """Returns a mapped column for the creation timestamp.
+
+    :returns: The mapped column for the creation timestamp.
+    :rtype: Mapped[datetime]
+    """
+    return mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        unique=False,
+        default=func.now(), # pylint: disable=E1102
+        comment="Creation timestamp"
+    )
+
+def user_id_column(pk: bool = False) -> Mapped[UUID]:
+    """Returns a mapped column for the user ID.
+
+    :returns: The mapped column for the user ID.
+    :rtype: Mapped[UUID]
+    """
+    return mapped_column(
+        String(36),
+        ForeignKey(foreign_key_target("users")),
+        primary_key=pk,
+        nullable=False,
+        comment=_USER_ID,
+    )
+
+def revoked_at_column() -> Mapped[Optional[datetime]]:
+    """Returns a mapped column for the revocation timestamp.
+
+    :returns: The mapped column for the revocation timestamp.
+    :rtype: Mapped[Optional[datetime]]
+    """
+    return mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+        unique=False,
+        comment="Revocation timestamp",
+    )
+
+def numerical_pk_column() -> Mapped[int]:
+    """Returns a mapped column for a numerical primary key.
+
+    :returns: The mapped column for a numerical primary key.
+    :rtype: Mapped[int]
+    """
+    return mapped_column(
+        Integer,
+        primary_key=True,
+        autoincrement=True,
+        comment="Numerical primary key",
+    )

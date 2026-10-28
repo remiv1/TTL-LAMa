@@ -9,18 +9,23 @@
 from __future__ import annotations
 
 from typing import TYPE_CHECKING, Optional
-from datetime import datetime, timezone
+from datetime import datetime
 from uuid import UUID
 
-from sqlalchemy import Integer, String, DateTime, ForeignKey
+from sqlalchemy import String, DateTime
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from ._common import Base, TABLE_ARGS, foreign_key_target
+from ._common import (
+    Base,
+    TABLE_ARGS,
+    created_at_column,
+    user_id_column,
+    revoked_at_column,
+    numerical_pk_column,
+)
 
 if TYPE_CHECKING:
     from .users import User
-
-_USER_ID = "Unique identifier of the user"
 
 class Session(Base):
     """Represents a user session.
@@ -52,40 +57,21 @@ class Session(Base):
     __tablename__ = "user_sessions"
     __table_args__ = TABLE_ARGS
 
-    id: Mapped[int] = mapped_column(
-        Integer,
-        primary_key=True,
-        autoincrement=True,
-        comment="Unique identifier of the user session",
-    )
-    user_id: Mapped[UUID] = mapped_column(
-        String(36),
-        ForeignKey(foreign_key_target("users")),
-        nullable=False,
-        comment=_USER_ID,
-    )
+    id: Mapped[int] = numerical_pk_column()
+    user_id: Mapped[UUID] = user_id_column()
     token_hash: Mapped[str] = mapped_column(
         String(255),
         unique=True,
         nullable=False,
         comment="Hash of the token representing the user session",
     )
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime,
-        nullable=False,
-        default=datetime.now(timezone.utc),
-        comment="Timestamp when the session was created",
-    )
+    created_at: Mapped[datetime] = created_at_column()
     expires_at: Mapped[datetime] = mapped_column(
         DateTime,
         nullable=False,
         comment="Timestamp when the session expires",
     )
-    revoked_at: Mapped[Optional[datetime]] = mapped_column(
-        DateTime,
-        nullable=True,
-        comment="Timestamp when the session was revoked",
-    )
+    revoked_at: Mapped[Optional[datetime]] = revoked_at_column()
     last_seen_at: Mapped[Optional[datetime]] = mapped_column(
         DateTime,
         nullable=True,

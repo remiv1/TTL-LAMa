@@ -16,13 +16,13 @@
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
-from datetime import datetime, timezone
+from datetime import datetime
 from uuid import uuid4, UUID
 
 from sqlalchemy import String, DateTime, Boolean
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from ._common import Base, TABLE_ARGS
+from ._common import Base, TABLE_ARGS, created_at_column
 
 if TYPE_CHECKING:
     from .sessions import Session
@@ -100,13 +100,7 @@ class User(Base):
         default=False,
         comment="Indicates whether the user has admin privileges",
     )
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime,
-        nullable=False,
-        unique=False,
-        default=datetime.now(timezone.utc),
-        comment="Timestamp indicating when the user was created",
-    )
+    created_at: Mapped[datetime] = created_at_column()
     last_login: Mapped[datetime] = mapped_column(
         DateTime,
         nullable=True,

@@ -16,12 +16,13 @@ from uuid import UUID
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session as ORMSession
-from sqlalchemy.exc import SQLAlchemyError
 
 from api.common.db_objects.sessions import Session as UserSession
 
+from ._common import ServiceMixin
 
-class SessionService:
+
+class SessionService(ServiceMixin):
     """Service class responsible for managing user sessions.
     
     :param db_session: The database session used for interacting with the user sessions.
@@ -38,7 +39,7 @@ class SessionService:
     def __init__(self, db_session: ORMSession, lifetime: timedelta) -> None:
         if lifetime <= timedelta(0):
             raise ValueError("Session lifetime must be positive.")
-        self.db_session = db_session
+        super().__init__(db_session)
         self.lifetime = lifetime
 
     def create(self, user_id: UUID | str) -> str:
@@ -61,12 +62,8 @@ class SessionService:
             expires_at=created_at + self.lifetime
         )
 
-        try:
-            self.db_session.add(session)
-            self.db_session.commit()
-        except SQLAlchemyError:
-            self.db_session.rollback()
-            raise
+        self.db_session.add(session)
+        self.commit()
 
         return token
 
@@ -111,8 +108,4 @@ class SessionService:
             return
         session.revoked_at = datetime.now(timezone.utc).replace(tzinfo=None)
 
-        try:
-            self.db_session.commit()
-        except SQLAlchemyError:
-            self.db_session.rollback()
-            raise
+        self.commit()

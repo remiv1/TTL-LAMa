@@ -99,9 +99,4 @@ class OIDCAuthBackend(AuthBackend):
                 "The account associated with the OIDC subject is not enabled.",
             )
 
-        return UnifiedUser(
-            id=str(user.id),
-            username=user.username,
-            is_admin=user.is_admin,
-            email=user.email,
-        )
+        return UnifiedUser.from_db_user(user)

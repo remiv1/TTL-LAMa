@@ -11,10 +11,15 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 from uuid import UUID
 
-from sqlalchemy import String, ForeignKey, Integer, UniqueConstraint
+from sqlalchemy import String, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from ._common import Base, TABLE_ARGS, foreign_key_target
+from ._common import (
+    Base,
+    TABLE_ARGS,
+    user_id_column,
+    numerical_pk_column,
+)
 
 if TYPE_CHECKING:
     from .users import User
@@ -43,17 +48,8 @@ class OIDCUser(Base):
         TABLE_ARGS
     )
 
-    id: Mapped[int] = mapped_column(
-        Integer,
-        primary_key=True,
-        autoincrement=True,
-        comment="Unique identifier of the OIDC user",
-    )
-    user_id: Mapped[UUID] = mapped_column(
-        String(36),
-        ForeignKey(foreign_key_target("users")),
-        comment="Unique identifier of the user",
-    )
+    id: Mapped[int] = numerical_pk_column()
+    user_id: Mapped[UUID] = user_id_column()
     issuer: Mapped[str] = mapped_column(
         String(255),
         nullable=False,

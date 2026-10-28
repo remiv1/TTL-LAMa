@@ -89,9 +89,12 @@ class InternalAuthBackend(AuthBackend):
         except (VerificationError, InvalidHashError):
             return None
 
-        return UnifiedUser(
-            id=str(user.id),
-            username=user.username,
-            is_admin=user.is_admin,
-            email=user.email,
-        )
+        return UnifiedUser.from_db_user(user)
+
+    def complete_login(self) -> UnifiedUser:
+        """Complete the login process for internal authentication.
+
+        Since internal authentication is handled synchronously, this method
+        does not perform any additional actions.
+        """
+        raise NotImplementedError("Internal authentication does not require completing login.")

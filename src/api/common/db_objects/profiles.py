@@ -12,19 +12,24 @@
 from __future__ import annotations
 
 from uuid import UUID
-from typing import TYPE_CHECKING
-from datetime import datetime, timezone
+from typing import TYPE_CHECKING, Optional
+from datetime import datetime
 
-from sqlalchemy import String, Integer, DateTime, ForeignKey
+from sqlalchemy import String, Integer, ForeignKey
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from ._common import Base, TABLE_ARGS
+from ._common import (
+    Base,
+    TABLE_ARGS,
+    numerical_pk_column,
+    created_at_column,
+    user_id_column,
+    revoked_at_column,
+)
 
 if TYPE_CHECKING:
     from .users import User
     from .leases import Lease
-
-_PROFILE_ID = "Unique identifier of the profile"
 
 class Profile(Base):
     """Represents a profile in the database.
@@ -42,30 +47,14 @@ class Profile(Base):
     __tablename__ = "profiles"
     __table_args__ = TABLE_ARGS
 
-    id: Mapped[int] = mapped_column(
-        Integer,
-        primary_key=True,
-        index=True,
-        comment=_PROFILE_ID,
-    )
+    id: Mapped[int] = numerical_pk_column()
     name: Mapped[str] = mapped_column(
         String(255),
         nullable=False,
         comment="Name of the profile",
     )
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime,
-        nullable=False,
-        unique=False,
-        default=datetime.now(timezone.utc),
-        comment="Timestamp indicating when the profile was created",
-    )
-    revoked_at: Mapped[datetime] = mapped_column(
-        DateTime,
-        nullable=True,
-        unique=False,
-        comment="Timestamp indicating when the profile was revoked",
-    )
+    created_at: Mapped[datetime] = created_at_column()
+    revoked_at: Mapped[Optional[datetime]] = revoked_at_column()
     profile_user: Mapped[list["ProfileUser"]] = relationship(
         "ProfileUser",
         back_populates="profile",
@@ -107,25 +96,9 @@ class ProfileUser(Base):
         nullable=False,
         comment="Unique identifier of the profile associated with the user",
     )
-    user_id: Mapped[UUID] = mapped_column(
-        String(36),
-        ForeignKey("users.id"),
-        nullable=False,
-        comment="Unique identifier of the user associated with the profile",
-    )
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime,
-        nullable=False,
-        unique=False,
-        default=datetime.now(timezone.utc),
-        comment="Timestamp indicating when the profile user association was created",
-    )
-    revoked_at: Mapped[datetime] = mapped_column(
-        DateTime,
-        nullable=True,
-        unique=False,
-        comment="Timestamp indicating when the profile user association was revoked",
-    )
+    user_id: Mapped[UUID] = user_id_column()
+    created_at: Mapped[datetime] = created_at_column()
+    revoked_at: Mapped[Optional[datetime]] = revoked_at_column()
     profile: Mapped["Profile"] = relationship(
         "Profile",
         back_populates="profile_user",

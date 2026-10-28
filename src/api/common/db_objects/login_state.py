@@ -11,15 +11,13 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 from uuid import UUID
 
-from sqlalchemy import Integer, String, Boolean, ForeignKey
+from sqlalchemy import Integer, Boolean
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from ._common import Base, TABLE_ARGS, foreign_key_target
+from ._common import Base, TABLE_ARGS, user_id_column
 
 if TYPE_CHECKING:
     from .users import User
-
-_USER_ID = "Unique identifier of the user"
 
 class LoginState(Base):
     """Persistent state of a user's login attempts.
@@ -38,12 +36,7 @@ class LoginState(Base):
     __tablename__ = "user_login_states"
     __table_args__ = TABLE_ARGS
 
-    user_id: Mapped[UUID] = mapped_column(
-        String(36),
-        ForeignKey(foreign_key_target("users")),
-        primary_key=True,
-        comment=_USER_ID,
-    )
+    user_id: Mapped[UUID] = user_id_column(pk=True)
     failed_attempts: Mapped[int] = mapped_column(
         Integer,
         nullable=False,

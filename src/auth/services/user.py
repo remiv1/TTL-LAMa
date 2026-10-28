@@ -13,10 +13,11 @@ from uuid import UUID
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session as ORMSession
-from sqlalchemy.exc import SQLAlchemyError
 
 from api.common.db_objects import User, UserOIDCUser, UserCredentials
 from api.common.other_objects import AuthMethod
+
+from ._common import ServiceMixin
 
 
 if TYPE_CHECKING:
@@ -24,7 +25,7 @@ if TYPE_CHECKING:
 
 _WARNING_MESSAGE = "No user has been added, use add_user() first."
 
-class UserService:
+class UserService(ServiceMixin):
     """Service class responsible for managing user-related operations.
 
     :param db_session: The database session used for interacting with the user data.
@@ -35,7 +36,7 @@ class UserService:
     """
 
     def __init__(self, db_session: ORMSession) -> None:
-        self.db_session = db_session
+        super().__init__(db_session)
         self._user = None
 
     def add_user(self, user: User) -> "UserService":
@@ -86,12 +87,9 @@ class UserService:
         """
         if not self._user:
             raise ValueError(_WARNING_MESSAGE)
-        try:
-            self.db_session.add(self._user)
-            self.db_session.commit()
-        except SQLAlchemyError as e:
-            self.db_session.rollback()
-            raise e
+
+        self.db_session.add(self._user)
+        self.commit()
 
         return self._user
 
@@ -197,12 +195,8 @@ class UserService:
         if not user:
             raise ValueError(f"No user found with ID {user_id}.")
         user.enabled = False
-        try:
-            self.db_session.add(user)
-            self.db_session.commit()
-        except SQLAlchemyError as e:
-            self.db_session.rollback()
-            raise e
+        self.db_session.add(user)
+        self.commit()
         if self._user and self._user.id == user_id:
             self._user = None
         return self._user is None
@@ -237,11 +231,7 @@ class UserService:
                 if identity_key not in existing_identities:
                     persisted_user.oidc_users.append(identity)
                     existing_identities.add(identity_key)
-        try:
-            self.db_session.commit()
-        except SQLAlchemyError:
-            self.db_session.rollback()
-            raise
+        self.commit()
 
         self._user = persisted_user
         return persisted_user

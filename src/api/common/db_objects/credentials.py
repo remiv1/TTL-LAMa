@@ -9,17 +9,22 @@
 from __future__ import annotations
 
 from uuid import UUID
+from datetime import datetime
 
-from typing import TYPE_CHECKING
-from sqlalchemy import Integer, String, CheckConstraint, ForeignKey
+from typing import TYPE_CHECKING, Optional
+from sqlalchemy import String, CheckConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from ._common import Base, TABLE_ARGS, foreign_key_target
+from ._common import (
+    Base,
+    TABLE_ARGS,
+    user_id_column,
+    revoked_at_column,
+    numerical_pk_column,
+)
 from ..other_objects import AuthMethod
 if TYPE_CHECKING:
     from .users import User
-
-_USER_ID = "Unique identifier of the user"
 
 class Credentials(Base):
     """Represents the credentials of a user.
@@ -44,18 +49,8 @@ class Credentials(Base):
         TABLE_ARGS,
     )
 
-    id: Mapped[int] = mapped_column(
-        Integer,
-        primary_key=True,
-        autoincrement=True,
-        comment="Unique identifier of the user credentials",
-    )
-    user_id: Mapped[UUID] = mapped_column(
-        String(36),
-        ForeignKey(foreign_key_target("users")),
-        nullable=False,
-        comment=_USER_ID,
-    )
+    id: Mapped[int] = numerical_pk_column()
+    user_id: Mapped[UUID] = user_id_column()
     auth_method: Mapped[str] = mapped_column(
         String(50),
         nullable=False,
@@ -66,6 +61,8 @@ class Credentials(Base):
         nullable=False,
         comment="Hashed password of the user",
     )
+    revoked_at: Mapped[Optional[datetime]] = revoked_at_column()
+
     user: Mapped["User"] = relationship(
         "User",
         back_populates="credentials",

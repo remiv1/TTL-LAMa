@@ -10,7 +10,8 @@ from typing import cast
 from flask import Blueprint, current_app, jsonify, request
 from flask_wtf.csrf import CSRFProtect, generate_csrf
 
-from auth.manager import AuthManager
+from auth.controller import AuthController
+from auth.manager import get_manager
 
 api_v1 = Blueprint("api_v1", __name__, url_prefix="/api/v1")
 
@@ -52,28 +53,8 @@ def authenticate():
     :returns: A JSON response containing the Bearer token.
     :rtype: Response
     """
-    app_config = cast(dict[str, object], current_app.config)
-    if app_config.get("AUTH_MODE") != "internal":
-        return jsonify(error="Authentication mode not supported"), 405
-
-    payload = request.get_json(silent=True)
-    if not isinstance(payload, dict):
-        return jsonify(error="Invalid payload. Expected a JSON object."), 400
-
-    manager = cast(AuthManager, current_app.extensions["auth_manager"])
-    result = manager.authenticate(cast(dict[str, object], payload))
-    if result is None:
-        return jsonify(error="Invalid username or password"), 401
-
-    response = jsonify(
-        user={
-            "id": result.user.id,
-            "username": result.user.username,
-            "email": result.user.email,
-            "is_admin": result.user.is_admin
-        },
-        access_token=result.session_token,
-        token_type="Bearer",
-    )
-    response.headers["Cache-Control"] = "no-store"
-    return response
+    try:
+        controller = AuthController(get_manager())
+    except RuntimeError:
+        return jsonify(error="Authentication manager not configured"), 501
+    return controller.api_login(request.get_json(silent=True))
