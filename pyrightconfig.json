@@ -1,5 +1,5 @@
 {
-  "extraPaths": ["src", "src/api", "scripts"],
+  "extraPaths": ["src", "src/api", "scripts", "cli/src"],
   "stubPath": "typings",
   "typeCheckingMode": "strict",
   "reportMissingTypeStubs": false,
