@@ -12,8 +12,10 @@ from flask_wtf.csrf import CSRFProtect, generate_csrf
 
 from auth.controller import AuthController
 from auth.manager import get_manager
+from .admin import admin
 
 api_v1 = Blueprint("api_v1", __name__, url_prefix="/api/v1")
+api_v1.register_blueprint(admin)
 
 @api_v1.before_request
 def protect_cookie_authenticated_requests() -> None:

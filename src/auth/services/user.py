@@ -11,11 +11,12 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Optional
 from uuid import UUID
 
-from sqlalchemy import select
+from sqlalchemy import inspect, select
 from sqlalchemy.orm import Session as ORMSession
 
 from api.common.db_objects import User, UserOIDCUser, UserCredentials
 from api.common.other_objects import AuthMethod
+from api.common.repositories import UserRepository
 
 from ._common import ServiceMixin
 
@@ -138,11 +139,7 @@ class UserService(ServiceMixin):
         :return: The user object corresponding to the given ID.
         :rtype: User
         """
-        stmt = select(User).where(User.id == user_id)
-        user = self.db_session.execute(stmt).scalar_one_or_none()
-        if not user:
-            raise ValueError(f"No user found with ID {user_id}.")
-        self._user = user
+        self._user = UserRepository(self.db_session).get(str(user_id), refresh=True)
         return self._user
 
     def get_by_oidc(self, issuer: str, subject: str) -> User | None:
@@ -175,8 +172,7 @@ class UserService(ServiceMixin):
         :return: The user object corresponding to the given username, or None if not found.
         :rtype: User | None
         """
-        stmt = select(User).where(User.username == username)
-        return self.db_session.scalars(stmt).one_or_none()
+        return UserRepository(self.db_session).by_username(username, refresh=True)
 
     def delete_user(self, user_id: Optional[UUID | str] = None) -> bool:
         """Delete a user by their ID, or delete the added user if no ID is provided.
@@ -186,18 +182,15 @@ class UserService(ServiceMixin):
 
         :return: True if the user was successfully disabled, False otherwise.
         """
-        if not user_id and self._user:
-            user_id = self._user.id
+        cached_identity = inspect(self._user).identity if self._user is not None else None
+        if not user_id and cached_identity:
+            user_id = cached_identity[0]
         if not user_id:
             raise ValueError("User ID must be provided if no user has been added.")
-        stmt = select(User).where(User.id == user_id)
-        user = self.db_session.execute(stmt).scalar_one_or_none()
-        if not user:
-            raise ValueError(f"No user found with ID {user_id}.")
-        user.enabled = False
-        self.db_session.add(user)
+        repository = UserRepository(self.db_session)
+        repository.disable(repository.get(str(user_id)))
         self.commit()
-        if self._user and self._user.id == user_id:
+        if cached_identity and str(cached_identity[0]) == str(user_id):
             self._user = None
         return self._user is None
 

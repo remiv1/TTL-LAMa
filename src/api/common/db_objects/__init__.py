@@ -10,6 +10,7 @@ from .leases import Lease as UserLease
 from .login_state import LoginState as UserLoginState
 from .oidc import OIDCUser as UserOIDCUser
 from .profiles import Profile as UserProfile
+from .profile_policy import ProfilePolicy
 from .sessions import Session as UserSession
 from .users import User
 
@@ -21,5 +22,6 @@ __all__ = [
     "UserSession",
     "UserOIDCUser",
     "UserProfile",
+    "ProfilePolicy",
     "User",
 ]

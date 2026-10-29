@@ -62,3 +62,15 @@ def require_authenticated_user(view: Callable[P, R]) -> Callable[P, R]:
 def get_authenticated_user() -> UnifiedUser:
     """Retourne l'utilisateur authentifié associé à la requête."""
     return cast(UnifiedUser, g.current_user)
+
+
+def require_admin(view: Callable[P, R]) -> Callable[P, R]:
+    """Authenticate and check current persisted administrator privileges."""
+    @require_authenticated_user
+    @wraps(view)
+    def wrapped(*args: P.args, **kwargs: P.kwargs) -> R:
+        if not get_authenticated_user().is_admin:
+            abort(403)
+        return view(*args, **kwargs)
+
+    return wrapped

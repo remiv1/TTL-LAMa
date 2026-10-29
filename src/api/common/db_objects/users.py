@@ -80,7 +80,7 @@ class User(Base):
         nullable=False,
         comment="Username of the user",
     )
-    email: Mapped[str] = mapped_column(
+    email: Mapped[str | None] = mapped_column(
         String(254),
         unique=True,
         nullable=True,
