@@ -1,6 +1,24 @@
-# TTL-LAMa 🦙⏱️
+# TTL-LAMa
 
 English | [Français](./docs/README.fr.md)
+
+[![Python 3.14](https://img.shields.io/badge/Python-3.14-3776AB?logo=python&logoColor=white)](https://www.python.org/)
+
+[![Flask](https://img.shields.io/badge/Flask-Web_Framework-7D0000?logo=flask&logoColor=white)](https://flask.palletsprojects.com/)
+[![SQLAlchemy](https://img.shields.io/badge/SQLAlchemy-ORM-960000?logo=sqlalchemy&logoColor=white)](https://www.sqlalchemy.org/)
+[![Gunicorn](https://img.shields.io/badge/Gunicorn-WSGI_Server-c50000)](https://gunicorn.org/)
+
+[![SQLite](https://img.shields.io/badge/SQLite-Default_Database-075200?logo=sqlite&logoColor=white)](https://www.sqlite.org/)
+[![PostgreSQL](https://img.shields.io/badge/PostgreSQL-Ready_For_Use-096D00?logo=postgresql&logoColor=white)](https://www.postgresql.org/)
+[![MySQL](https://img.shields.io/badge/MySQL-Ready_For_Use-0B8800?logo=mysql&logoColor=white)](https://www.mysql.com/)
+[![MariaDB](https://img.shields.io/badge/MariaDB-Ready_For_Use-0FAF00?logo=mariadb&logoColor=white)](https://mariadb.org/)
+
+[![Docker/Podman](https://img.shields.io/badge/Docker/Podman-Container-0141ff?logo=docker&logoColor=white)](https://www.docker.com/)
+
+[![HTMX](https://img.shields.io/badge/HTMX-HTML_Over_The_Wire-FFD901?logo=htmx&logoColor=white)](https://htmx.org/)
+[![NPM](https://img.shields.io/badge/NPM-Package_Manager-FFD901?logo=npm&logoColor=white)](https://www.npmjs.com/)
+
+[![Icone](./docs/img/logo_plain.svg)](./docs/img/logo_plain.svg)
 
 > **Time-To-Live Lease Access Manager**
 >

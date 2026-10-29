@@ -1,3 +1,12 @@
+FROM node:22-alpine AS web-assets
+
+WORKDIR /build
+
+COPY package.json package-lock.json ./
+RUN npm ci
+COPY src/api/web/static/scss/ ./src/api/web/static/scss/
+RUN mkdir -p src/api/web/static/css && npm run build
+
 FROM python:3.14-slim AS base
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
@@ -15,6 +24,9 @@ COPY src/requirements.txt /opt/ttl-lama/requirements.txt
 RUN pip install --no-cache-dir -r /opt/ttl-lama/requirements.txt
 
 COPY src/ /opt/ttl-lama/src/
+COPY --from=web-assets /build/src/api/web/static/css/main.css /opt/ttl-lama/src/api/web/static/css/main.css
+COPY --from=web-assets /build/src/api/web/static/js/htmx.min.js /opt/ttl-lama/src/api/web/static/js/htmx.min.js
+COPY --from=web-assets /build/src/api/web/static/fonts/ /opt/ttl-lama/src/api/web/static/fonts/
 RUN useradd --system --create-home --home-dir /home/ttl-lama ttl-lama \
     && mkdir -p /data /etc/ttl-lama \
     && chown ttl-lama:ttl-lama /data
@@ -34,5 +46,4 @@ CMD ["python", "-m", "pytest", "-q", "-p", "no:cacheprovider"]
 FROM base AS runtime
 
 USER ttl-lama
-EXPOSE 8080
 ENTRYPOINT ["sh", "/opt/ttl-lama/src/entrypoint.sh"]

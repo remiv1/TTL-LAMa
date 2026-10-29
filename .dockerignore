@@ -1,11 +1,16 @@
 .git
 .venv
+node_modules
 __pycache__
 **/__pycache__
 .pytest_cache
 **/.pytest_cache
 *.py[cod]
 *.db
+src/api/web/static/css/main.css
+src/api/web/static/css/*.map
+src/api/web/static/js/htmx.min.js
+src/api/web/static/fonts/ibm-plex-sans-*.woff2
 .env
 .env.*
 secrets/

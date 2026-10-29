@@ -35,6 +35,8 @@ podman run -d --name ttl-lama \
   ttl-lama:latest
 ```
 
+Le build de l’image compile le SCSS et copie htmx et les fontes dans l’image. Les assets web générés n’ont pas besoin d’être présents dans le dépôt.
+
 Remplacez `/chemin/vers/config.yml` par le chemin absolu de votre configuration. Si vous souhaitez utiliser le fichier YAML intégré à l’image, omettez son montage. Le volume nommé `ttl-lama-data` conserve la base SQLite et la clé Flask générée entre les redémarrages. Pour arrêter puis supprimer le conteneur sans supprimer les données : `podman stop ttl-lama` puis `podman rm ttl-lama`.
 
 Le modèle intégré active l’authentification interne en développement : `DEBUG` est activé, les connexions HTTP sont autorisées et les cookies ne sont pas marqués `Secure`. Le mot de passe initial du compte `admin` est `admin`. Pour une première initialisation en production, remplacez-le dans la configuration avant le démarrage. Cette valeur sert uniquement à créer le compte : changer la configuration ensuite ne modifie pas le mot de passe déjà stocké.

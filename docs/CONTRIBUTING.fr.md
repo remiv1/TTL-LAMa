@@ -36,7 +36,7 @@ Les contributions doivent privilégier :
 
 ## Assets web
 
-L’interface web utilise du SCSS et une copie locale de htmx. Après modification des sources, exécutez `npm ci` puis `npm run build` à la racine du dépôt. Le CSS compilé et les dépendances copiées sont conservés dans `src/api/web/static/` et intégrés à l’image applicative.
+L’interface web utilise du SCSS et une copie locale de htmx. Le build du conteneur compile le SCSS et copie htmx et les fontes dans l’image; les assets générés ne sont pas conservés dans Git. Pour exécuter l’application directement depuis les sources, lancez `npm ci` puis `npm run build` à la racine du dépôt après toute modification des assets web.
 
 ## Commits
 

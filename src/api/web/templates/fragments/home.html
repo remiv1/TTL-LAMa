@@ -5,7 +5,7 @@
         <p class="hero-copy">{{ text.hero_copy }}</p>
     </div>
     <div class="hero-logo-area">
-        <span class="logo-placeholder logo-placeholder--large" role="img" aria-label="{{ text.logo_placeholder }}"></span>
+        <img class="logo" src="{{ url_for('web.static', filename='img/logo_300ppp.png') }}" alt="logo TTL-LAMa 300ppp">
         <p class="hero-logo-caption">{{ text.brand }}</p>
     </div>
 </section>

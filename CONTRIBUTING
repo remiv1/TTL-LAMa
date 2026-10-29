@@ -36,7 +36,7 @@ Avoid introducing abstractions or complexity that do not address a concrete need
 
 ## Web Assets
 
-The web interface uses SCSS and locally served htmx. After changing its sources, run `npm ci` and `npm run build` from the repository root. The compiled CSS and copied vendor assets are stored under `src/api/web/static/` and are included in the application image.
+The web interface uses SCSS and locally served htmx. A container build compiles the SCSS and copies htmx and fonts into the image; generated assets are not stored in Git. To run the application directly from the source tree, run `npm ci` and `npm run build` from the repository root after changing web assets.
 
 ## Commits
 
