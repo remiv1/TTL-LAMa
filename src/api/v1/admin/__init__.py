@@ -1,4 +1,47 @@
-"""Administrative HTTP adapter over transaction-neutral repositories."""
+"""Administrative HTTP adapter over transaction-neutral repositories.
+
+.. functions::
+    - `session`: Obtain the current request-scoped database session.
+    - `body`: Validate and parse the request body against a Pydantic schema.
+    - `filters`: Validate and parse query parameters against a Pydantic schema.
+    - `serialize`: Convert a database model instance to a JSON-serializable dictionary.
+    - `saved`: Commit the current session and return a serialized response.
+    - `hash_password`: Hash a password using the internal authentication backend.
+    - `http_error`: Return consistent JSON errors for HTTP exceptions.
+    - `invalid_request`: Return consistent JSON errors for invalid request data.
+    - `database_error`: Return consistent JSON errors for database failures.
+
+.. prefix:: /admin
+
+.. routes::
+    - `/users`: GET Lists users.
+    - `/users/<uuid:user_id>`: GET Retrieve a specific user by ID.
+    - `/users`: POST Create a new user.
+    - `/users/<uuid:user_id>`: PATCH Update a specific user by ID and invalidate sessions.
+    - `/users/<uuid:user_id>`: DELETE Logically delete a specific user by ID and invalidate
+    sessions.
+    - `/users/<uuid:user_id>/profiles`: GET List profiles for a specific user by ID.
+    - `/users/<uuid:user_id>/profiles/<uuid:profile_id>`: PUT Assign a specific profile for a
+    specific user by ID.
+    - `/users/<uuid:user_id>/profiles/<uuid:profile_id>`: DELETE Unassign a specific profile and its
+    leases for a specific user by ID.
+    - `/devices`: Lists devices.
+    - `/devices/<int:device_id>`: GET Retrieve a specific device by ID.
+    - `/devices/<int:device_id>`: PATCH Update a specific device by ID.
+    - `/devices/<int:device_id>/block`: POST Block a specific device by ID.
+    - `/devices/<int:device_id>`: DELETE Delete a specific device by ID.
+    - `/leases`: Lists leases.
+    - `/leases/<int:lease_id>`: GET Retrieve a specific lease by ID.
+    - `/leases/<int:lease_id>/revoke`: POST Revoke a specific lease by ID.
+    - `/profiles`: Lists profiles.
+    - `/profiles/<int:profile_id>`: GET Retrieve a specific profile by ID.
+    - `/profiles`: POST Create a new profile.
+    - `/profiles/<int:profile_id>`: PATCH Update a specific profile by ID.
+    - `/profiles/<int:profile_id>`: DELETE Delete a specific profile by ID.
+
+.. module_author:: Rémi Verschuur <rverschuur@audit-io.fr>
+.. version:: 1.0.0
+"""
 from __future__ import annotations
 
 from datetime import datetime, timezone
@@ -35,23 +78,41 @@ Schema = TypeVar("Schema", bound=BaseModel)
 @admin.before_request
 @require_admin
 def authorize_admin() -> None:
-    """Protect every admin endpoint, including newly registered routes."""
+    """Protect every admin endpoint, including newly registered routes. Function is applied before
+    every request to ensure the user has administrative privileges.
+    """
 
 
 @admin.after_request
 def prevent_caching(response: Response) -> Response:
-    """Do not cache administrative data."""
+    """Do not cache administrative data.
+    
+    :param response: The HTTP response object to modify.
+    :type response: Response
+    :return: The modified HTTP response object.
+    :rtype: Response
+    """
     response.headers["Cache-Control"] = "no-store"
     return response
 
 
 def session() -> Session:
-    """Obtain the current request-scoped database session."""
+    """Obtain the current request-scoped database session.
+    
+    :return: The current request-scoped database session.
+    :rtype: Session
+    """
     return current_app.extensions["database_config"].session()
 
 
 def body(schema: type[Schema]) -> Schema:
-    """Validate an object body and reject empty patches and explicit nulls."""
+    """Validate an object body and reject empty patches and explicit nulls.
+    
+    :param schema: The Pydantic schema class to validate against.
+    :type schema: type[Schema]
+    :return: The validated and parsed object.
+    :rtype: Schema
+    """
     data: object = request.get_json()
     parsed = schema.model_validate(data)
     if not parsed.model_fields_set:
@@ -63,14 +124,26 @@ def body(schema: type[Schema]) -> Schema:
 
 
 def filters(schema: type[Schema]) -> Schema:
-    """Reject duplicate filters rather than silently selecting one."""
+    """Reject duplicate filters rather than silently selecting one.
+    
+    :param schema: The Pydantic schema class to validate against.
+    :type schema: type[Schema]
+    :return: The validated and parsed filters.
+    :rtype: Schema
+    """
     if any(len(request.args.getlist(key)) != 1 for key in request.args):
         raise ValueError("Filters must not be repeated")
     return schema.model_validate(request.args.to_dict())
 
 
 def serialize(instance: Base) -> dict[str, object]:
-    """Expose scalar domain columns only, never relationships or credentials."""
+    """Expose scalar domain columns only, never relationships or credentials.
+    
+    :param instance: The domain model instance to serialize.
+    :type instance: Base
+    :return: A dictionary representation of the instance with scalar columns.
+    :rtype: dict[str, object]
+    """
     result: dict[str, object] = {}
     for column in instance.__table__.columns:
         value: object = getattr(instance, column.name)
@@ -88,13 +161,27 @@ def serialize(instance: Base) -> dict[str, object]:
 
 
 def saved(instance: Base, status: int = 200) -> tuple[Response, int]:
-    """Commit a complete domain operation before reporting success."""
+    """Commit a complete domain operation before reporting success.
+    
+    :param instance: The domain model instance that was saved.
+    :type instance: Base
+    :param status: The HTTP status code to return, defaults to 200.
+    :type status: int, optional
+    :return: A tuple containing the JSON response and the HTTP status code.
+    :rtype: tuple[Response, int]
+    """
     session().commit()
     return jsonify(serialize(instance)), status
 
 
 def hash_password(password: str) -> str:
-    """Reuse the configured internal authentication hasher."""
+    """Reuse the configured internal authentication hasher.
+    
+    :param password: The plaintext password to hash.
+    :type password: str
+    :return: The hashed password.
+    :rtype: str
+    """
     backend = get_manager().backend
     if not isinstance(backend, InternalAuthBackend):
         raise ValueError("Passwords can only be managed in internal authentication mode")
@@ -103,13 +190,25 @@ def hash_password(password: str) -> str:
 
 @admin.errorhandler(HTTPException)
 def http_error(error: HTTPException) -> tuple[Response, int]:
-    """Return consistent JSON errors for authentication and request failures."""
+    """Return consistent JSON errors for authentication and request failures.
+    
+    :param error: The HTTP exception that occurred.
+    :type error: HTTPException
+    :return: A tuple containing the JSON response and the HTTP status code.
+    :rtype: tuple[Response, int]
+    """
     return jsonify(error=error.description), error.code or 500
 
 
 @admin.errorhandler(ValueError)
 def invalid_request(error: ValueError) -> tuple[Response, int]:
-    """Report input errors without echoing passwords or database details."""
+    """Report input errors without echoing passwords or database details.
+    
+    :param error: The ValueError that occurred.
+    :type error: ValueError
+    :return: A tuple containing the JSON response and the HTTP status code.
+    :rtype: tuple[Response, int]
+    """
     session().rollback()
     if isinstance(error, ValidationError):
         return jsonify(error="Invalid input", details=error.errors(
@@ -124,7 +223,13 @@ def invalid_request(error: ValueError) -> tuple[Response, int]:
 
 @admin.errorhandler(SQLAlchemyError)
 def database_error(error: SQLAlchemyError) -> tuple[Response, int]:
-    """Roll back failed operations and keep database internals private."""
+    """Roll back failed operations and keep database internals private.
+    
+    :param error: The SQLAlchemy error that occurred.
+    :type error: SQLAlchemyError
+    :return: A tuple containing the JSON response and the HTTP status code.
+    :rtype: tuple[Response, int]
+    """
     session().rollback()
     if isinstance(error, IntegrityError):
         return jsonify(error="Operation conflicts with existing data"), 409
@@ -194,8 +299,10 @@ def delete_user(user_id: UUID) -> tuple[Response, int]:
 def list_user_profiles(user_id: UUID) -> Response:
     """Read active profile assignments for an existing user."""
     UserRepository(session()).get(str(user_id))
-    return jsonify([serialize(profile) for profile in
-                    ProfileRepository(session()).find(user=str(user_id))])
+    return jsonify(
+        [serialize(profile) for profile in
+        ProfileRepository(session()).find(user=str(user_id))]
+    )
 
 
 @admin.put("/users/<uuid:user_id>/profiles/<int:profile_id>")

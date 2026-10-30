@@ -1,5 +1,10 @@
 """Authentication decorators for the Flask application.
 
+..functions::
+    - `require_authenticated_user`: Decorator to require an authenticated user for a view.
+    - `get_authenticated_user`: Function to get the currently authenticated user.
+    - `require_admin`: Decorator to require an authenticated administrator for a view.
+
 .. module_author:: Rémi Verschuur <rverschuur@audit-io.fr>
 .. version:: 1.0.0
 """

@@ -7,6 +7,7 @@ from .auth import oidc_settings
 from .database import database_settings
 from .applications import app, oidc_app, csrf_app
 from .users import user_with_oidc_identity, user_service
+from .admin import domain
 
 __all__ = [
     "login_admin",
@@ -17,4 +18,5 @@ __all__ = [
     "app",
     "oidc_app",
     "csrf_app",
+    "domain",
 ]

@@ -4,6 +4,9 @@
     - `create_app`: Create the Flask application and initialize its extensions.
     - `get_sessions`: Return a new database scoped_session.
 
+.. constants::
+    - `LOGGER`: Logger instance for the module.
+
 .. module_author:: Rémi Verschuur <rverschuur@audit-io.fr>
 .. version:: 1.0.0
 """
@@ -46,15 +49,23 @@ LOGGER = logging.getLogger(__name__)
 
 
 class _OAuthRegistry(Protocol): # pylint: disable=R0903
-    """Protocol for OAuth registry objects."""
+    """Protocol for OAuth registry objects.
+
+    This protocol defines the interface for objects that can register OAuth clients.
+    
+    .. author:: Rémi Verschuur <rverschuur@audit-io.fr>
+    .. version:: 1.0.0
+    """
     def register(self, name: str, overwrite: bool = False, **kwargs: Any) -> FlaskOAuth2App:
-        """Register an OAuth client.
+        """Register an OAuth client. This types the OAuth client registration who has bad
+        type hints.
 
         :param name: The name of the OAuth client.
         :type name: str
         :param overwrite: Whether to overwrite an existing client with the same name.
         :type overwrite: bool
         :param kwargs: Additional keyword arguments for the OAuth client registration.
+        :type kwargs: Any
         :returns: The registered OAuth client.
         :rtype: FlaskOAuth2App
         """
@@ -62,7 +73,13 @@ class _OAuthRegistry(Protocol): # pylint: disable=R0903
 
 
 def _configure_cors(app: Flask, settings: FlaskSettings) -> None:
-    """Configure les origines CORS autorisées."""
+    """Configure authorized CORS origins.
+    
+    :param app: The Flask application instance.
+    :type app: Flask
+    :param settings: The Flask settings containing CORS configuration.
+    :type settings: FlaskSettings
+    """
     if not settings.CORS_ALLOWED_ORIGINS:
         return
     CORS(
@@ -84,7 +101,13 @@ def _configure_cors(app: Flask, settings: FlaskSettings) -> None:
 
 
 def _register_oidc_client(app: Flask, settings: FlaskSettings) -> None:
-    """Enregistre le client OIDC dans l'application Flask."""
+    """Register the OIDC client in the Flask application.
+
+    :param app: The Flask application instance.
+    :type app: Flask
+    :param settings: The Flask settings containing OIDC configuration.
+    :type settings: FlaskSettings
+    """
     oauth = cast(_OAuthRegistry, OAuth(app))
     issuer = settings.OIDC_ISSUER.rstrip("/")
     app.extensions["oidc_client"] = oauth.register(
@@ -102,10 +125,24 @@ def _create_auth_manager(
     flask_settings: FlaskSettings,
     password_hasher_settings: PasswordHasherSettings | None,
 ) -> AuthManager:
-    """Construit les services de session et le backend d'authentification."""
-    user_service = UserService(database.session())
+    """Constructs the session services and the authentication backend for the Flask app
+    depending on the authentication mode specified in the Flask settings.
+
+    :param app: The Flask application instance.
+    :type app: Flask
+    :param database: The database configuration.
+    :type database: DatabaseConfig
+    :param flask_settings: The Flask settings containing authentication configuration.
+    :type flask_settings: FlaskSettings
+    :param password_hasher_settings: The settings for the password hasher, if any.
+    :type password_hasher_settings: PasswordHasherSettings | None
+    :returns: The constructed authentication manager.
+    :rtype: AuthManager
+    """
+    db_session = cast(Session, database.session)
+    user_service = UserService(db_session)
     session_service = SessionService(
-        database.session(),
+        db_session,
         timedelta(seconds=flask_settings.SESSION_LIFETIME),
     )
     if flask_settings.AUTH_MODE == "external":
@@ -142,7 +179,11 @@ def _create_auth_manager(
 
 
 def _register_blueprints(app: Flask) -> None:
-    """Enregistre les blueprints et configure la protection CSRF."""
+    """Register the blueprints and configure CSRF protection.
+
+    :param app: The Flask application instance.
+    :type app: Flask
+    """
     csrf = CSRFProtect(app)
     # Exempt the API v1 blueprint from CSRF protection. These routes are protected
     # by other means, such as authentication and authorization mechanisms.
@@ -153,7 +194,13 @@ def _register_blueprints(app: Flask) -> None:
 
 
 def _register_security_headers(app: Flask, settings: FlaskSettings) -> None:
-    """Ajoute les en-têtes de sécurité aux réponses Flask."""
+    """Add security headers to Flask responses.
+
+    :param app: The Flask application instance.
+    :type app: Flask
+    :param settings: The Flask settings containing security configuration.
+    :type settings: FlaskSettings
+    """
     @app.after_request
     def set_security_headers(response: Response) -> Response:
         """Add security headers to every outgoing response."""
@@ -172,10 +219,20 @@ def _register_security_headers(app: Flask, settings: FlaskSettings) -> None:
 
 
 def _register_database_teardown(app: Flask, database: DatabaseConfig) -> None:
-    """Retire la session SQLAlchemy à la fin de chaque contexte applicatif."""
+    """Remove the SQLAlchemy session at the end of each application context.
+
+    :param app: The Flask application instance.
+    :type app: Flask
+    :param database: The database configuration.
+    :type database: DatabaseConfig
+    """
     @app.teardown_appcontext
     def remove_database_session(_error: BaseException | None) -> None:
-        """Retire la session de base de données courante."""
+        """Remove the current database session at the end of the application context.
+        
+        :param _error: The error that occurred during the application context teardown, if any.
+        :type _error: BaseException | None
+        """
         database.session.remove()
 
 

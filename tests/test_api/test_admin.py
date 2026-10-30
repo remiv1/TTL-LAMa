@@ -44,7 +44,7 @@ def json_rows(response: TestResponse) -> list[dict[str, object]]:
 
 
 @dataclass
-class Domain:
+class Domain:   # pylint: disable=R0902
     """A real authenticated client and a connected domain graph."""
     app: Flask
     client: FlaskClient
@@ -59,41 +59,6 @@ class Domain:
     def path(self, resource: str) -> str:
         """Prefix an administrative resource path."""
         return f"{PREFIX}/{resource}"
-
-
-@pytest.fixture
-def domain(app: Flask) -> Domain:
-    """Seed an isolated set of records using the public repository contract."""
-    database = app.extensions["database_config"]
-    session = database.session()
-    user = UserRepository(session).add(User(
-        username=f"user-{uuid4().hex}", enabled=True, is_admin=False,
-    ))
-    profiles = ProfileRepository(session)
-    profile = profiles.create(f"profile-{uuid4().hex}", AccessProfile.model_validate(POLICY))
-    assignment = profiles.assign(user, profile)
-    device = Device(user_id=str(user.id), name="laptop", public_key="public-key")
-    session.add(device)
-    session.flush()
-    lease = Lease(
-        device_id=device.id, user_id=str(user.id), profile_user_id=assignment.id,
-        ended_at=utcnow() + timedelta(hours=1),
-    )
-    expired = Lease(
-        device_id=device.id, user_id=str(user.id), profile_user_id=assignment.id,
-        ended_at=utcnow() - timedelta(hours=1),
-    )
-    session.add_all([lease, expired])
-    session.commit()
-    manager = app.extensions["auth_manager"]
-    admin = manager.user_service.get_by_username(app.config["TEST_ADMIN_USERNAME"])
-    admin_token = manager.session_service.create(str(admin.id))
-    user_token = manager.session_service.create(str(user.id))
-    return Domain(
-        app, app.test_client(), {"Authorization": f"Bearer {admin_token}"},
-        {"Authorization": f"Bearer {user_token}"},
-        str(user.id), profile.id, device.id, lease.id, expired.id,
-    )
 
 
 @pytest.mark.parametrize("role", ["anonymous", "user", "invalid", "malformed"])
@@ -142,7 +107,10 @@ def test_admin_read_all_resources_and_filters(domain: Domain) -> None:
         ("users", domain.user_id), ("devices", domain.device_id),
         ("leases", domain.lease_id), ("profiles", domain.profile_id),
     ):
-        response = domain.client.get(domain.path(f"{resource}/{identifier}"), headers=domain.headers)
+        response = domain.client.get(
+            domain.path(f"{resource}/{identifier}"),
+            headers=domain.headers,
+        )
         assert response.status_code == 200
         assert json_object(response)["id"] == identifier
     response = domain.client.get(
@@ -197,7 +165,12 @@ def test_revocation_cascades_and_preserves_history(domain: Domain, operation: st
         "lease-revoke": ("POST", f"leases/{domain.lease_id}/revoke", None),
     }
     method, path, data = operations[operation]
-    response = domain.client.open(domain.path(path), method=method, headers=domain.headers, json=data)
+    response = domain.client.open(
+        domain.path(path),
+        method=method,
+        headers=domain.headers,
+        json=data,
+    )
     assert response.status_code in {200, 204}, response.get_data()
     lease = domain.client.get(domain.path(f"leases/{domain.lease_id}"), headers=domain.headers)
     assert lease.status_code == 200
@@ -356,7 +329,15 @@ def test_repository_transactions_and_yaml_seeding(domain: Domain) -> None:
     repository.import_missing(profiles)
     session.commit()
     profile = repository.list(repository.model.name == name)[0]
-    repository.set_policy(profile, AccessProfile.model_validate({**POLICY, "maximum_duration": "4h"}))
+    repository.set_policy(
+        profile,
+        AccessProfile.model_validate(
+            {
+                **POLICY,
+                "maximum_duration": "4h",
+            },
+        )
+    )
     session.commit()
     repository.import_missing(profiles)
     session.commit()
@@ -477,5 +458,8 @@ def test_profile_conflict_rolls_back_policy_and_revocations(domain: Domain) -> N
     assert response.status_code == 409
     response = domain.client.get(domain.path(f"leases/{domain.lease_id}"), headers=domain.headers)
     assert json_object(response)["status"] == "active"
-    response = domain.client.get(domain.path(f"profiles/{domain.profile_id}"), headers=domain.headers)
+    response = domain.client.get(
+        domain.path(f"profiles/{domain.profile_id}"),
+        headers=domain.headers,
+    )
     assert json_object(response)["policy"] == POLICY

@@ -9,7 +9,7 @@
    id="svg1"
    xml:space="preserve"
    sodipodi:docname="favicon.svg"
-   inkscape:export-filename="logo_plain.svg"
+   inkscape:export-filename="favicon_75ppp.png"
    inkscape:export-xdpi="75"
    inkscape:export-ydpi="75"
    inkscape:version="1.4.4 (dcaf3e7d9e, 2026-05-05)"
@@ -35,7 +35,8 @@
      inkscape:window-x="0"
      inkscape:window-y="0"
      inkscape:window-maximized="1"
-     inkscape:current-layer="layer1" /><defs
+     inkscape:current-layer="layer1"
+     inkscape:export-bgcolor="#ffffffff" /><defs
      id="defs1" /><g
      inkscape:label="Calque 1"
      inkscape:groupmode="layer"

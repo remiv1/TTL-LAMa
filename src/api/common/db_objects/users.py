@@ -15,7 +15,7 @@
 """
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Optional
 from datetime import datetime
 from uuid import uuid4, UUID
 
@@ -80,7 +80,7 @@ class User(Base):
         nullable=False,
         comment="Username of the user",
     )
-    email: Mapped[str | None] = mapped_column(
+    email: Mapped[Optional[str]] = mapped_column(
         String(254),
         unique=True,
         nullable=True,
@@ -101,7 +101,7 @@ class User(Base):
         comment="Indicates whether the user has admin privileges",
     )
     created_at: Mapped[datetime] = created_at_column()
-    last_login: Mapped[datetime] = mapped_column(
+    last_login: Mapped[Optional[datetime]] = mapped_column(
         DateTime,
         nullable=True,
         unique=False,
