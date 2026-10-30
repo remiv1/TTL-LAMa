@@ -1,5 +1,11 @@
 FROM node:22-alpine AS web-assets
 
+LABEL maintainer="rverschuur@audit-io.fr"
+LABEL org.opencontainers.image.description="TTL-LAMa Docker image"
+LABEL org.opencontainers.image.licenses="MIT"
+LABEL org.opencontainers.image.source="https://github.com/remiv1/TTL-LAMa"
+LABEL org.opencontainers.image.version="0.0.3"
+
 WORKDIR /build
 
 COPY package.json package-lock.json ./

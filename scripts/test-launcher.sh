@@ -1,11 +1,18 @@
 #!/usr/bin/bash
 
+# Colors
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[0;33m'
 BLUE='\033[0;34m'
 RESET='\033[0m'
-COMPOSE_FILE='compose.test.yml'
+
+# Directories
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+CLI_DIR="$(cd -- "$SCRIPT_DIR/.." && pwd)"
+COMPOSE_FILE="$CLI_DIR/compose.test.yml"
+
+# Log file and test configuration
 LOG_FILE='build.log'
 ONLY_SQLITE=false
 WITHOUT_OIDC=false
@@ -52,7 +59,7 @@ section() {
   local title="$2"
   len=${#title}
   left_and_right=3
-  total=80
+  total=$(tput cols)
   spaces=$(( (total - len - 2 * left_and_right - 2) / 2 ))
   added=$((len % 2))
   printf -- "${color}%*s\n" "$total" '' | tr ' ' '='
