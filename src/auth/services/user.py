@@ -174,6 +174,16 @@ class UserService(ServiceMixin):
         """
         return UserRepository(self.db_session).by_username(username, refresh=True)
 
+    def record_login(self, user_id: str) -> None:
+        """Persist the current UTC login time for a user.
+
+        :param user_id: The ID of the authenticated user.
+        :type user_id: str
+        """
+        repository = UserRepository(self.db_session)
+        repository.set_last_login(repository.get(user_id))
+        self.commit()
+
     def delete_user(self, user_id: Optional[UUID | str] = None) -> bool:
         """Delete a user by their ID, or delete the added user if no ID is provided.
 

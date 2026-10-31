@@ -37,6 +37,26 @@ Cookie-authenticated mutations also require `X-CSRFToken`, obtained from
 validation first and may receive 400 for a missing token. Bearer-authenticated
 mutations do not require CSRF. Authorization headers take precedence over cookies.
 
+### Self-service user API
+
+All endpoints below are relative to `/api/v1`. They require an authenticated,
+enabled user but do not require administrator privileges. Cookie-authenticated
+mutations require the CSRF token described above.
+
+| Method | Path | Operation |
+| --- | --- | --- |
+| PATCH | `/users/me/password` | Change the authenticated user's internal password |
+
+The request body requires `current_password` and `new_password` (each 1-1024
+characters). The server verifies the current password with the configured
+Argon2id hasher, hashes the new password, and returns 204. A missing internal
+credential returns 409; an incorrect current password returns 401. All of the
+user's sessions, including the calling session, are revoked after success, so
+the user must sign in again. Successful responses are not cacheable.
+
+`last_login` is updated after successful internal or OIDC authentication through
+the Web or API login flows. Failed authentication attempts do not update it.
+
 | Method | Path | Operation / optional query filters |
 | --- | --- | --- |
 | GET | `/users` | List; `device`, `lease`, `profile` |
@@ -69,8 +89,12 @@ returns 400, missing resources return 404, and uniqueness/state conflicts return
 - Users: `username` (required at creation, 1-50 characters), nullable `email`,
   `enabled` and `is_admin` (booleans), optional `password` (1-1024 characters).
   Password management is only available in internal authentication mode and uses
-  the configured Argon2id hasher. Without a password, no internal credential is
-  created. Existing external identity linking is unchanged.
+  the configured Argon2id hasher. When a password is omitted in internal mode,
+  the server generates one and returns HTTP 201 as `{ "user": ..., "generated_password": ... }`.
+  The CLI displays this generated secret once; it is never returned by later reads
+  or stored by the CLI. An explicitly supplied password is never returned.
+  Without an internal backend, an omitted password creates no internal credential.
+  Existing external identity linking is unchanged.
 - Devices: PATCH accepts `name` (1-255 characters) and `public_key`
   (1-512 characters). Ownership and lifecycle timestamps cannot be supplied.
   Device creation remains outside the admin API, as planned above.

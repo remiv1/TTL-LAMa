@@ -47,6 +47,7 @@ class AuthManager:
         """
         user = self.backend.complete_login()
         session_token = self.session_service.create(user.id)
+        self.user_service.record_login(user.id)
 
         return AuthenticationResult(
             user=user,
@@ -69,6 +70,7 @@ class AuthManager:
             return None
 
         session_token = self.session_service.create(user.id)
+        self.user_service.record_login(user.id)
         return AuthenticationResult(
             user=user,
             session_token=session_token,

@@ -14,6 +14,7 @@ from pydantic import TypeAdapter
 from sqlalchemy import select
 from werkzeug.test import TestResponse
 
+from auth.backends import AuthBackend
 from api.common.db_objects.devices import Device
 from api.common.db_objects.leases import Lease
 from api.common.db_objects.profiles import ProfileUser
@@ -146,6 +147,75 @@ def test_user_crud_password_and_session_invalidation(domain: Domain) -> None:
     assert json_object(domain.client.get(
         domain.path(f"users/{identifier}"), headers=domain.headers
     ))["enabled"] is False
+
+
+def test_user_creation_generates_password_for_internal_auth(domain: Domain) -> None:
+    """A generated password is returned once and can authenticate the new user."""
+    username = f"generated-{uuid4().hex}"
+    created = domain.client.post(
+        domain.path("users"),
+        headers=domain.headers,
+        json={"username": username},
+    )
+
+    assert created.status_code == 201
+    payload = json_object(created)
+    generated_password = payload["generated_password"]
+    user = payload["user"]
+    assert isinstance(generated_password, str)
+    assert generated_password != ""
+    assert isinstance(user, dict)
+    assert user["username"] == username
+    assert "password" not in user
+    assert "hash_password" not in user
+    stored_user = UserRepository(
+        domain.app.extensions["database_config"].session()
+    ).get(cast(str, user["id"]))
+    assert len(stored_user.credentials) == 1
+    assert stored_user.credentials[0].hash_password.startswith("$argon2id$")
+    assert stored_user.credentials[0].hash_password != generated_password
+
+    login = domain.client.post(
+        "/api/v1/auth",
+        headers={"Authorization": "Bearer unused"},
+        json={"username": username, "password": generated_password},
+    )
+    assert login.status_code == 200
+
+    identifier = cast(str, user["id"])
+    retrieved = domain.client.get(
+        domain.path(f"users/{identifier}"),
+        headers=domain.headers,
+    )
+    assert retrieved.status_code == 200
+    assert "generated_password" not in retrieved.get_data(as_text=True)
+    assert "hash_password" not in retrieved.get_data(as_text=True)
+
+
+def test_user_creation_without_internal_backend_does_not_generate_password(
+    domain: Domain,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An omitted password creates no internal credential outside internal mode."""
+    username = f"external-{uuid4().hex}"
+    manager = domain.app.extensions["auth_manager"]
+    monkeypatch.setattr(manager, "backend", cast(AuthBackend, object()))
+
+    created = domain.client.post(
+        domain.path("users"),
+        headers=domain.headers,
+        json={"username": username},
+    )
+
+    assert created.status_code == 201
+    payload = json_object(created)
+    assert payload["username"] == username
+    assert "generated_password" not in payload
+    stored_user = UserRepository(
+        domain.app.extensions["database_config"].session()
+    ).by_username(username)
+    assert stored_user is not None
+    assert stored_user.credentials == []
 
 
 @pytest.mark.parametrize("operation", ["user-delete", "user-disable", "device-delete",

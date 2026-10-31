@@ -8,6 +8,7 @@ from flask import Flask
 from flask.testing import FlaskClient
 from werkzeug.test import TestResponse
 
+from api.common.db_objects import User, UserOIDCUser
 from auth.backends import OIDCAuthBackend
 from auth.manager import AuthManager
 
@@ -58,6 +59,40 @@ def test_login_starts_oidc_flow(
     assert response.status_code == 302
     assert response.headers["Location"] == "https://dex.example/authorize"
     assert redirect_uris == [oidc_app.config["OIDC_REDIRECT_URI"]]
+
+
+def test_oidc_callback_records_last_login(
+    oidc_app: Flask,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The successful OIDC callback persists the user's last login timestamp."""
+    database = oidc_app.extensions["database_config"]
+    user = User(
+        username="oidc-last-login",
+        enabled=True,
+        is_admin=False,
+        oidc_users=[UserOIDCUser(
+            subject="oidc-last-login-subject",
+            issuer=oidc_app.config["OIDC_ISSUER"],
+        )],
+    )
+    database.session().add(user)
+    database.session().commit()
+
+    manager = cast(AuthManager, oidc_app.extensions["auth_manager"])
+    backend = cast(OIDCAuthBackend, manager.backend)
+    monkeypatch.setattr(
+        backend.oidc_client,
+        "authorize_access_token",
+        lambda: {"userinfo": {"sub": "oidc-last-login-subject"}},
+    )
+
+    response = oidc_app.test_client().get("/auth/callback")
+
+    assert response.status_code == 302
+    persisted_user = manager.user_service.get_by_username("oidc-last-login")
+    assert persisted_user is not None
+    assert persisted_user.last_login is not None
 
 def test_internal_login_sets_http_only_cookie(app: Flask) -> None:
     """Sets the session cookie without exposing the token in the response body."""

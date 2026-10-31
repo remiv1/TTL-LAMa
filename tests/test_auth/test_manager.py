@@ -52,6 +52,11 @@ class FakeUserService:  # pylint: disable=R0903
     def __init__(self, user: User) -> None:
         self.user = user
         self.requested_id: str | None = None
+        self.recorded_login_for: str | None = None
+
+    def record_login(self, user_id: str) -> None:
+        """Record the user ID whose login timestamp was updated."""
+        self.recorded_login_for = user_id
 
     def get_by_id(self, user_id: str) -> User:
         """Get the user by ID."""
@@ -69,10 +74,11 @@ def test_complete_login_creates_session_and_returns_result() -> None:
     )
     backend = FakeBackend(user)
     sessions = FakeSessionService()
+    users = FakeUserService(User(id=user.id, username=user.username))
     manager = AuthManager(
         backend=backend,
         session_service=cast(SessionService, sessions),
-        user_service=cast(UserService, object()),
+        user_service=cast(UserService, users),
     )
 
     result = manager.complete_login()
@@ -82,6 +88,7 @@ def test_complete_login_creates_session_and_returns_result() -> None:
         session_token="session-token",
     )
     assert sessions.created_for == user.id
+    assert users.recorded_login_for == user.id
 
 def test_authenticate_returns_none_without_creating_session() -> None:
     """Test that authenticate returns None and does not create a session."""
@@ -92,10 +99,11 @@ def test_authenticate_returns_none_without_creating_session() -> None:
     )
     backend = FakeBackend(user)
     sessions = FakeSessionService()
+    users = FakeUserService(User(id=user.id, username=user.username))
     manager = AuthManager(
         backend=backend,
         session_service=cast(SessionService, sessions),
-        user_service=cast(UserService, object()),
+        user_service=cast(UserService, users),
     )
 
     result = manager.authenticate(
@@ -104,6 +112,7 @@ def test_authenticate_returns_none_without_creating_session() -> None:
 
     assert result is None
     assert sessions.created_for is None
+    assert users.recorded_login_for is None
 
 def test_authenticate_creates_session_and_returns_result() -> None:
     """Test that authenticate creates a session and returns the authentication result."""
@@ -114,10 +123,11 @@ def test_authenticate_creates_session_and_returns_result() -> None:
     )
     backend = FakeBackend(user, authenticated_user=user)
     sessions = FakeSessionService()
+    users = FakeUserService(User(id=user.id, username=user.username))
     manager = AuthManager(
         backend=backend,
         session_service=cast(SessionService, sessions),
-        user_service=cast(UserService, object()),
+        user_service=cast(UserService, users),
     )
 
     result = manager.authenticate(
@@ -129,6 +139,7 @@ def test_authenticate_creates_session_and_returns_result() -> None:
         session_token="session-token",
     )
     assert sessions.created_for == user.id
+    assert users.recorded_login_for == user.id
 
 def test_get_current_user_returns_active_local_user() -> None:
     """Test that get_current_user returns the active local user."""

@@ -100,6 +100,14 @@ class UserRepository(Repository[User]):
             ))
         self.revoke_sessions(user)
 
+    def set_last_login(self, user: User) -> None:
+        """Record the current UTC time as the user's last successful login.
+
+        :param user: The user whose login time is being recorded.
+        :type user: User
+        """
+        user.last_login = utcnow()
+
     def set_admin(self, user: User, is_admin: bool) -> None:
         """Invalidate sessions when administrative privileges change.
         

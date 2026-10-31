@@ -44,6 +44,7 @@
 """
 from __future__ import annotations
 
+import secrets
 from datetime import datetime, timezone
 from typing import TypeVar
 from uuid import UUID
@@ -257,11 +258,23 @@ def get_user(user_id: UUID) -> Response:
 def create_user() -> tuple[Response, int]:
     """Create a user and optional internal credentials atomically."""
     data = body(UserCreate)
+    password = data.password
+    generated_password: str | None = None
+    if password is None and isinstance(get_manager().backend, InternalAuthBackend):
+        generated_password = secrets.token_urlsafe(32)
+        password = generated_password
+
     user = UserRepository(session()).create(
         username=data.username, email=data.email,
         enabled=data.enabled, is_admin=data.is_admin,
-        password_hash=hash_password(data.password) if data.password is not None else None,
+        password_hash=hash_password(password) if password is not None else None,
     )
+    if generated_password is not None:
+        session().commit()
+        return jsonify(
+            user=serialize(user),
+            generated_password=generated_password,
+        ), 201
     return saved(user, 201)
 
 
