@@ -96,6 +96,66 @@ def test_api_auth_is_unavailable_in_external_mode(oidc_app: Flask) -> None:
     assert response.status_code == 405
 
 
+def test_current_user_lists_expirations_without_exposing_session_hash(app: Flask) -> None:
+    """The current-user endpoint returns active expirations but no token hashes."""
+    manager = cast(AuthManager, app.extensions["auth_manager"])
+    username = cast(str, app.config["TEST_ADMIN_USERNAME"])
+    user = manager.user_service.get_by_username(username)
+    assert user is not None
+    first_token = manager.session_service.create(str(user.id))
+    second_token = manager.session_service.create(str(user.id))
+
+    response = app.test_client().get(
+        "/api/v1/users/me",
+        headers={"Authorization": f"Bearer {first_token}"},
+    )
+
+    assert response.status_code == 200
+    assert response.headers["Cache-Control"] == "no-store"
+    payload = cast(dict[str, object], response.get_json())
+    assert payload["user"] == {
+        "id": str(user.id),
+        "username": username,
+        "email": user.email,
+        "is_admin": user.is_admin,
+    }
+    sessions = cast(list[dict[str, object]], payload["sessions"])
+    assert len(sessions) == 2
+    assert all(isinstance(item["expires_at"], str) for item in sessions)
+    assert "token_hash" not in response.get_data(as_text=True)
+    assert first_token not in response.get_data(as_text=True)
+    assert second_token not in response.get_data(as_text=True)
+
+
+def test_logout_revokes_only_the_current_session(app: Flask) -> None:
+    """Logout revokes the request token but leaves other user sessions active."""
+    manager = cast(AuthManager, app.extensions["auth_manager"])
+    username = cast(str, app.config["TEST_ADMIN_USERNAME"])
+    user = manager.user_service.get_by_username(username)
+    assert user is not None
+    first_token = manager.session_service.create(str(user.id))
+    second_token = manager.session_service.create(str(user.id))
+
+    response = app.test_client().post(
+        "/api/v1/auth/logout",
+        headers={"Authorization": f"Bearer {first_token}"},
+    )
+
+    assert response.status_code == 204
+    assert response.headers["Cache-Control"] == "no-store"
+    assert manager.get_current_user(first_token) is None
+    assert manager.get_current_user(second_token) is not None
+
+
+def test_current_user_and_logout_require_authentication(app: Flask) -> None:
+    """Both session endpoints reject missing or invalid bearer credentials."""
+    client = app.test_client()
+    assert client.get("/api/v1/users/me").status_code == 401
+    invalid_headers = {"Authorization": "Bearer invalid"}
+    assert client.get("/api/v1/users/me", headers=invalid_headers).status_code == 401
+    assert client.post("/api/v1/auth/logout", headers=invalid_headers).status_code == 401
+
+
 def test_self_service_password_change_revokes_all_sessions(app: Flask) -> None:
     """An ordinary user can change their password and revoke every active session."""
     client = app.test_client()

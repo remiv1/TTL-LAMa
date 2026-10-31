@@ -11,12 +11,15 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Optional
 from uuid import UUID
 
+from argon2 import PasswordHasher
+from argon2.exceptions import InvalidHashError, VerificationError
 from sqlalchemy import inspect, select
 from sqlalchemy.orm import Session as ORMSession
 
 from api.common.db_objects import User, UserOIDCUser, UserCredentials
 from api.common.other_objects import AuthMethod
-from api.common.repositories import UserRepository
+from api.common.repositories import ConflictError, NotFoundError, UserRepository
+from auth.exceptions import InvalidCredentialsError
 
 from ._common import ServiceMixin
 
@@ -182,6 +185,52 @@ class UserService(ServiceMixin):
         """
         repository = UserRepository(self.db_session)
         repository.set_last_login(repository.get(user_id))
+        self.commit()
+
+    def change_password(
+        self,
+        user_id: str,
+        current_password: str,
+        new_password: str,
+        password_hasher: PasswordHasher,
+    ) -> None:
+        """Verify and replace a user's internal password.
+
+        :param user_id: The ID of the user whose password is being changed.
+        :type user_id: str
+        :param current_password: The user's current plain-text password.
+        :type current_password: str
+        :param new_password: The new plain-text password.
+        :type new_password: str
+        :param password_hasher: The configured internal password hasher.
+        :type password_hasher: PasswordHasher
+        :raises NotFoundError: If the user does not exist.
+        :raises ConflictError: If the user has no unique internal credential.
+        :raises InvalidCredentialsError: If the current password is incorrect.
+        :raises SQLAlchemyError: If persistence fails.
+        """
+        repository = UserRepository(self.db_session)
+        try:
+            user = repository.get(user_id)
+        except NotFoundError:
+            self.rollback()
+            raise
+
+        credentials = [
+            credential for credential in user.credentials
+            if credential.auth_method == AuthMethod.INTERNAL.value
+        ]
+        if len(credentials) != 1:
+            self.rollback()
+            raise ConflictError("This account has no unique internal password credential")
+
+        try:
+            password_hasher.verify(credentials[0].hash_password, current_password)
+        except (VerificationError, InvalidHashError):
+            self.rollback()
+            raise InvalidCredentialsError("Current password is incorrect") from None
+
+        repository.set_password(user, password_hasher.hash(new_password))
         self.commit()
 
     def delete_user(self, user_id: Optional[UUID | str] = None) -> bool:

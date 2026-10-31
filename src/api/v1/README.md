@@ -45,7 +45,18 @@ mutations require the CSRF token described above.
 
 | Method | Path | Operation |
 | --- | --- | --- |
+| GET | `/users/me` | Read the authenticated user's identity and active session expirations |
 | PATCH | `/users/me/password` | Change the authenticated user's internal password |
+| POST | `/auth/logout` | Revoke the session used by this request |
+
+`GET /users/me` returns `user` with `id`, `username`, `email` and `is_admin`,
+plus `sessions`, a list of active sessions containing only `expires_at` in
+UTC. An empty list means no active sessions. Session tokens and their hashes
+are never returned. The response is not cacheable.
+
+`POST /auth/logout` revokes only the authenticated session and returns 204 with
+`Cache-Control: no-store`; other sessions belonging to the user remain active.
+Cookie-authenticated requests also need the CSRF token and clear the auth cookie.
 
 The request body requires `current_password` and `new_password` (each 1-1024
 characters). The server verifies the current password with the configured

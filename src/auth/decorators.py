@@ -3,6 +3,7 @@
 ..functions::
     - `require_authenticated_user`: Decorator to require an authenticated user for a view.
     - `get_authenticated_user`: Function to get the currently authenticated user.
+    - `get_authenticated_session_token`: Function to get the authenticated session token.
     - `require_admin`: Decorator to require an authenticated administrator for a view.
 
 .. module_author:: Rémi Verschuur <rverschuur@audit-io.fr>
@@ -59,6 +60,7 @@ def require_authenticated_user(view: Callable[P, R]) -> Callable[P, R]:
             abort(401)
 
         g.current_user = user
+        g.authenticated_session_token = session_token
         return view(*args, **kwargs)
 
     return wrapped
@@ -67,6 +69,11 @@ def require_authenticated_user(view: Callable[P, R]) -> Callable[P, R]:
 def get_authenticated_user() -> UnifiedUser:
     """Retourne l'utilisateur authentifié associé à la requête."""
     return cast(UnifiedUser, g.current_user)
+
+
+def get_authenticated_session_token() -> str:
+    """Return the session token validated for the current request."""
+    return cast(str, g.authenticated_session_token)
 
 
 def require_admin(view: Callable[P, R]) -> Callable[P, R]:
