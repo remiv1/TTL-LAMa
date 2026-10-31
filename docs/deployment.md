@@ -37,6 +37,8 @@ podman run -d --name ttl-lama \
 
 The image build compiles the SCSS and copies htmx and fonts into the image. Generated web assets do not need to be present in the repository.
 
+Gunicorn preloads the application in its master process: table creation, profile import, and administrator initialization finish before workers start. The master's SQLAlchemy sessions and connections are then closed before the fork; each worker opens its own connections. This mechanism is database-independent and works with SQLite, PostgreSQL, MariaDB, and MySQL. Initialization failures prevent workers from starting. Keep preloading enabled when customizing Gunicorn. This coordination covers a single Gunicorn instance, not multiple containers starting simultaneously against the same database.
+
 Replace `/path/to/config.yml` with the absolute path to your configuration file. Omit its mount to use the YAML file embedded in the image. The named `ttl-lama-data` volume preserves the SQLite database and generated Flask key across container restarts. To stop and remove the container without removing its data, run `podman stop ttl-lama` followed by `podman rm ttl-lama`.
 
 The embedded configuration enables internal authentication in development: `DEBUG` is enabled, HTTP connections are allowed, and cookies are not marked `Secure`. The initial `admin` account password is `admin`. For the first production initialization, replace it in the configuration before startup. This value is used only to create the account; changing the configuration later does not change the password already stored.
