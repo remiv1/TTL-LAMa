@@ -33,6 +33,7 @@ from api.config import (
 )
 from api.v1 import api_v1
 from api.v1.admin import admin
+from api.v1.user import user_api
 from api.common.repositories import ProfileRepository
 from api.web import web
 from auth import (
@@ -189,6 +190,7 @@ def _register_blueprints(app: Flask) -> None:
     # by other means, such as authentication and authorization mechanisms.
     csrf.exempt(api_v1) # NOSONAR
     csrf.exempt(admin) # NOSONAR - parent hook enforces CSRF for cookie requests
+    csrf.exempt(user_api) # NOSONAR - parent hook enforces CSRF for cookie requests
     for blueprint in (auth_bp, api_v1, web):
         app.register_blueprint(blueprint)
 

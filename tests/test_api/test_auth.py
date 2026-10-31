@@ -1,11 +1,17 @@
 """Tests for the authentication API."""
 
+from datetime import timedelta
 from typing import cast
+from ipaddress import IPv4Network
 
 from flask import Flask
 from flask.testing import FlaskClient
 
-from api.common.repositories import UserRepository
+from api.common.db_objects.devices import Device
+from api.common.db_objects.leases import Lease
+from api.common.repositories import DeviceRepository, ProfileRepository, UserRepository
+from api.common.repositories.leases import utcnow
+from api.config.c_profiles import AccessProfile
 from auth.manager import AuthManager
 
 
@@ -127,6 +133,88 @@ def test_current_user_lists_expirations_without_exposing_session_hash(app: Flask
     assert second_token not in response.get_data(as_text=True)
 
 
+def test_current_user_overview_only_returns_owned_resources(app: Flask) -> None:
+    """An ordinary user sees their resources and no other user's data."""
+    database = app.extensions["database_config"]
+    database_session = database.session()
+    user_repository = UserRepository(database_session)
+    user = user_repository.create(username="overview-user")
+    other_user = user_repository.create(username="overview-other-user")
+    profile_repository = ProfileRepository(database_session)
+    profile = profile_repository.create(
+        "overview-profile",
+        AccessProfile(
+            default_duration="1h",
+            maximum_duration="8h",
+            networks=[IPv4Network(address="10.0.0.0/24")],
+        ),
+    )
+    other_profile = profile_repository.create(
+        "other-overview-profile",
+        AccessProfile(
+            default_duration="1h",
+            maximum_duration="8h",
+            networks=[IPv4Network(address="192.168.0.0/24")],
+        ),
+    )
+    assignment = profile_repository.assign(user, profile)
+    other_assignment = profile_repository.assign(other_user, other_profile)
+    device = DeviceRepository(database_session).add(
+        Device(user_id=user.id, name="my-device", public_key="my-public-key")
+    )
+    other_device = DeviceRepository(database_session).add(
+        Device(
+            user_id=other_user.id,
+            name="other-device",
+            public_key="other-public-key",
+        )
+    )
+    database_session.add(
+        Lease(
+            device_id=device.id,
+            user_id=user.id,
+            profile_user_id=assignment.id,
+            ended_at=utcnow() + timedelta(hours=1),
+        )
+    )
+    database_session.add(
+        Lease(
+            device_id=other_device.id,
+            user_id=other_user.id,
+            profile_user_id=other_assignment.id,
+            ended_at=utcnow() + timedelta(hours=1),
+        )
+    )
+    database_session.commit()
+
+    manager = cast(AuthManager, app.extensions["auth_manager"])
+    token = manager.session_service.create(str(user.id))
+    response = app.test_client().get(
+        "/api/v1/users/me/overview",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+
+    assert response.status_code == 200
+    assert response.headers["Cache-Control"] == "no-store"
+    payload = cast(dict[str, object], response.get_json())
+    assert cast(dict[str, object], payload["user"])["id"] == str(user.id)
+    devices = cast(list[dict[str, object]], payload["devices"])
+    assert [item["name"] for item in devices] == ["my-device"]
+    assert "public_key" not in devices[0]
+    leases = cast(list[dict[str, object]], payload["leases"])
+    assert len(leases) == 1
+    assert leases[0]["device_id"] == device.id
+    assert leases[0]["status"] == "active"
+    profiles = cast(list[dict[str, object]], payload["profiles"])
+    assert len(profiles) == 1
+    assert profiles[0]["name"] == "overview-profile"
+    assert profiles[0]["policy"] == {
+        "default_duration": "1h",
+        "maximum_duration": "8h",
+        "networks": ["10.0.0.0/24"],
+    }
+
+
 def test_logout_revokes_only_the_current_session(app: Flask) -> None:
     """Logout revokes the request token but leaves other user sessions active."""
     manager = cast(AuthManager, app.extensions["auth_manager"])
@@ -151,8 +239,12 @@ def test_current_user_and_logout_require_authentication(app: Flask) -> None:
     """Both session endpoints reject missing or invalid bearer credentials."""
     client = app.test_client()
     assert client.get("/api/v1/users/me").status_code == 401
+    assert client.get("/api/v1/users/me/overview").status_code == 401
     invalid_headers = {"Authorization": "Bearer invalid"}
     assert client.get("/api/v1/users/me", headers=invalid_headers).status_code == 401
+    assert client.get(
+        "/api/v1/users/me/overview", headers=invalid_headers
+    ).status_code == 401
     assert client.post("/api/v1/auth/logout", headers=invalid_headers).status_code == 401
 
 

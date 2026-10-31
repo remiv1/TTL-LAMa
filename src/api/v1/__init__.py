@@ -5,6 +5,7 @@
 .. routes::
     - `/csrf`: Get a CSRF token.
     - `/auth`: Authenticate an internal user and return a Bearer token.
+        - `/users/me/overview`: Get the authenticated user's identity and access resources.
     - `/users/me/password`: Change the authenticated user's internal password.
 
 .. module_author:: Rémi Verschuur <rverschuur@audit-io.fr>
@@ -12,7 +13,7 @@
 """
 from __future__ import annotations
 
-from datetime import timezone
+from datetime import datetime, timezone
 from typing import cast
 
 from flask import Blueprint, Response, current_app, jsonify, request
@@ -24,7 +25,8 @@ from sqlalchemy.exc import SQLAlchemyError
 from api.common.db_objects.sessions import Session as UserSession
 from api.common.other_objects import PasswordChange
 from api.common.repositories import ConflictError, NotFoundError
-from api.common.repositories.leases import utcnow
+from api.common.repositories import DeviceRepository, LeaseRepository, ProfileRepository
+from api.common.repositories.leases import lease_status, utcnow
 from auth.backends.internal import InternalAuthBackend
 from auth.controller import AuthController
 from auth.decorators import (
@@ -35,9 +37,11 @@ from auth.decorators import (
 from auth.exceptions import InvalidCredentialsError
 from auth.manager import get_manager
 from .admin import admin
+from .user import user_api
 
 api_v1 = Blueprint("api_v1", __name__, url_prefix="/api/v1")
 api_v1.register_blueprint(admin)
+api_v1.register_blueprint(user_api)
 
 
 
@@ -116,6 +120,80 @@ def get_current_user() -> Response:
             "is_admin": user.is_admin,
         },
         sessions=sessions,
+    )
+    response.headers["Cache-Control"] = "no-store"
+    return response
+
+
+def _format_timestamp(value: datetime | None) -> str | None:
+    """Format a database timestamp as an ISO 8601 UTC value."""
+    if value is None:
+        return None
+    normalized = (
+        value.replace(tzinfo=timezone.utc)
+        if value.tzinfo is None
+        else value.astimezone(timezone.utc)
+    )
+    return normalized.isoformat()
+
+
+@api_v1.get("/users/me/overview")
+@require_authenticated_user
+def get_current_user_overview() -> Response:
+    """Return the authenticated user's identity and owned access resources."""
+    user = get_authenticated_user()
+    database_session = current_app.extensions["database_config"].session()
+    user_id = str(user.id)
+
+    devices = DeviceRepository(database_session).find(user=user_id)
+    leases = LeaseRepository(database_session).find(user=user_id)
+    profiles = ProfileRepository(database_session).find(user=user_id)
+
+    device_rows: list[dict[str, object]] = [
+        {
+            "id": device.id,
+            "name": device.name,
+            "created_at": _format_timestamp(device.created_at),
+            "revoked_at": _format_timestamp(device.revoked_at),
+        }
+        for device in devices
+    ]
+    lease_rows: list[dict[str, object]] = [
+        {
+            "id": lease.id,
+            "device_id": lease.device_id,
+            "profile_id": lease.profile_user.profile_id,
+            "created_at": _format_timestamp(lease.created_at),
+            "ended_at": _format_timestamp(lease.ended_at),
+            "revoked_at": _format_timestamp(lease.revoked_at),
+            "status": lease_status(lease),
+        }
+        for lease in leases
+    ]
+    profile_repository = ProfileRepository(database_session)
+    profile_rows: list[dict[str, object]] = [
+        {
+            "id": profile.id,
+            "name": profile.name,
+            "policy": (
+                policy.model_dump(mode="json")
+                if (policy := profile_repository.policy(profile)) is not None
+                else None
+            ),
+        }
+        for profile in profiles
+    ]
+
+    response = jsonify(
+        user={
+            "id": user.id,
+            "username": user.username,
+            "email": user.email,
+            "is_admin": user.is_admin,
+        },
+        devices=device_rows,
+        leases=lease_rows,
+        profiles=profile_rows,
     )
     response.headers["Cache-Control"] = "no-store"
     return response

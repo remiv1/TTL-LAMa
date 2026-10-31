@@ -205,3 +205,18 @@ class ProfileFilters(Filters):
     user: UUID | None = None
     device: Identifier | None = None
     lease: Identifier | None = None
+
+
+class DeviceCreate(Input):
+    """Strict input schema for creating an owned device."""
+
+    name: Name
+    public_key: PublicKey
+
+
+class LeaseCreate(Input):
+    """Strict input schema for requesting a lease from an assigned profile."""
+
+    device_id: Identifier
+    profile_id: Identifier
+    duration: Duration | None = Field(default=None)

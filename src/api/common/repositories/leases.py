@@ -18,9 +18,12 @@ from sqlalchemy import select, update
 from sqlalchemy.orm import Session
 from sqlalchemy.sql.elements import ColumnElement
 
+from api.common.db_objects.devices import Device
 from api.common.db_objects.leases import Lease
-from api.common.db_objects.profiles import ProfileUser
-from .base import Repository
+from api.common.db_objects.profile_policy import ProfilePolicy
+from api.common.db_objects.profiles import Profile, ProfileUser
+from api.config.c_profiles import parse_duration
+from .base import ConflictError, NotFoundError, Repository
 
 
 def utcnow() -> datetime:
@@ -100,6 +103,76 @@ class LeaseRepository(Repository[Lease]):
         elif status is not None:
             raise ValueError("Invalid lease status")
         return self.list(*conditions)
+
+    def get_owned(self, identifier: int, user_id: str) -> Lease:
+        """Retrieve a lease only when it belongs to the given user."""
+        lease = self.session.scalar(select(Lease).where(
+            Lease.id == identifier, Lease.user_id == user_id
+        ))
+        if lease is None:
+            raise NotFoundError("Lease not found")
+        return lease
+
+    def create(
+        self,
+        *,
+        user_id: str,
+        device_id: int,
+        profile_id: int,
+        duration: str | None = None,
+    ) -> Lease:
+        """Create a lease within the user's device and profile policy.
+
+        :param user_id: The identifier of the authenticated user.
+        :type user_id: str
+        :param device_id: The identifier of an active device owned by the user.
+        :type device_id: int
+        :param profile_id: The identifier of an actively assigned profile.
+        :type profile_id: int
+        :param duration: Requested duration, or the profile default when omitted.
+        :type duration: str | None
+        :return: The staged lease.
+        :rtype: Lease
+        :raises NotFoundError: If the device or profile is not available to the user.
+        :raises ConflictError: If the profile has no policy or duration exceeds its maximum.
+        :raises ValueError: If the requested duration is invalid.
+        """
+        device = self.session.scalar(select(Device).where(
+            Device.id == device_id,
+            Device.user_id == user_id,
+            Device.revoked_at.is_(None),
+        ))
+        if device is None:
+            raise NotFoundError("Active device not found")
+
+        assignment = self.session.scalar(
+            select(ProfileUser)
+            .join(Profile, Profile.id == ProfileUser.profile_id)
+            .where(
+                ProfileUser.user_id == user_id,
+                ProfileUser.profile_id == profile_id,
+                ProfileUser.revoked_at.is_(None),
+                Profile.revoked_at.is_(None),
+            )
+        )
+        if assignment is None:
+            raise NotFoundError("Active profile assignment not found")
+
+        policy = self.session.get(ProfilePolicy, profile_id)
+        if policy is None:
+            raise ConflictError("Assigned profile has no access policy")
+
+        selected_duration = duration or policy.default_duration
+        requested = parse_duration(selected_duration)
+        if requested > parse_duration(policy.maximum_duration):
+            raise ConflictError("Requested duration exceeds the profile maximum")
+
+        return self.add(Lease(
+            device_id=device_id,
+            user_id=user_id,
+            profile_user_id=assignment.id,
+            ended_at=utcnow() + requested,
+        ))
 
     def revoke(self, lease: Lease) -> Lease:
         """Revoke idempotently, preserving the first revocation time.

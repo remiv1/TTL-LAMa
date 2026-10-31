@@ -15,7 +15,7 @@ from sqlalchemy.sql.elements import ColumnElement
 from api.common.db_objects.devices import Device
 from api.common.db_objects.leases import Lease
 from api.common.db_objects.profiles import ProfileUser
-from .base import Repository
+from .base import NotFoundError, Repository
 from .leases import LeaseRepository, utcnow
 
 
@@ -32,9 +32,17 @@ class DeviceRepository(Repository[Device]):
     def __init__(self, session: Session) -> None:
         super().__init__(session, Device)
 
-    def find(self, *, lease: int | None = None, profile: int | None = None) -> list[Device]:
+    def find(
+        self,
+        *,
+        user: str | None = None,
+        lease: int | None = None,
+        profile: int | None = None,
+    ) -> list[Device]:
         """Filter devices through their leases.
 
+        :param user: The ID of the owning user.
+        :type user: str | None
         :param lease: The ID of the lease to filter by.
         :type lease: int | None
         :param profile: The ID of the profile to filter by.
@@ -43,6 +51,8 @@ class DeviceRepository(Repository[Device]):
         :rtype: list[Device]
         """
         conditions: list[ColumnElement[bool]] = []
+        if user is not None:
+            conditions.append(Device.user_id == user)
         if lease is not None:
             conditions.append(Device.id.in_(select(Lease.device_id).where(Lease.id == lease)))
         if profile is not None:
@@ -51,6 +61,19 @@ class DeviceRepository(Repository[Device]):
                 .where(ProfileUser.profile_id == profile)
             ))
         return self.list(*conditions)
+
+    def get_owned(self, identifier: int, user_id: str) -> Device:
+        """Retrieve a device only when it belongs to the given user."""
+        device = self.session.scalar(select(Device).where(
+            Device.id == identifier, Device.user_id == user_id
+        ))
+        if device is None:
+            raise NotFoundError("Device not found")
+        return device
+
+    def create(self, user_id: str, name: str, public_key: str) -> Device:
+        """Create a device owned by the given user."""
+        return self.add(Device(user_id=user_id, name=name, public_key=public_key))
 
     def update(self, device: Device, *, name: str | None = None,
                public_key: str | None = None) -> Device:

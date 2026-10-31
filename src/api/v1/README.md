@@ -48,6 +48,14 @@ mutations require the CSRF token described above.
 | GET | `/users/me` | Read the authenticated user's identity and active session expirations |
 | PATCH | `/users/me/password` | Change the authenticated user's internal password |
 | POST | `/auth/logout` | Revoke the session used by this request |
+| GET | `/users/me/devices` | List owned devices |
+| POST | `/users/me/devices` | Create an owned device |
+| GET | `/users/me/devices/<device_id>` | Read an owned device |
+| DELETE | `/users/me/devices/<device_id>` | Revoke an owned device and its active leases |
+| GET | `/users/me/leases` | List owned leases |
+| POST | `/users/me/leases` | Create an owned lease |
+| GET | `/users/me/leases/<lease_id>` | Read an owned lease |
+| POST | `/users/me/leases/<lease_id>/revoke` | Revoke an owned lease without deleting history |
 
 `GET /users/me` returns `user` with `id`, `username`, `email` and `is_admin`,
 plus `sessions`, a list of active sessions containing only `expires_at` in
@@ -64,6 +72,13 @@ Argon2id hasher, hashes the new password, and returns 204. A missing internal
 credential returns 409; an incorrect current password returns 401. All of the
 user's sessions, including the calling session, are revoked after success, so
 the user must sign in again. Successful responses are not cacheable.
+
+Device creation accepts `name` and `public_key`. Lease creation accepts
+`device_id`, `profile_id`, and optional `duration`. The device must be active
+and owned by the user, and the profile must be active and assigned to them. If
+`duration` is omitted, the profile's `default_duration` is used; durations
+above `maximum_duration` are rejected. Device and lease reads and lists return
+JSON, and self-service responses use `Cache-Control: no-store`.
 
 `last_login` is updated after successful internal or OIDC authentication through
 the Web or API login flows. Failed authentication attempts do not update it.
