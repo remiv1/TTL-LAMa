@@ -331,9 +331,7 @@ input:focus-visible {
   display: grid;
   justify-items: center;
   gap: 18px;
-}
 
-.hero-logo-area {
   .logo {
     width: 220px;
     height: 220px;
@@ -493,6 +491,62 @@ input:focus-visible {
   border-radius: 4px;
   color: var(--ink);
   background: var(--paper);
+}
+
+.device-workspace {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(240px, 0.8fr);
+  align-items: start;
+  gap: 48px;
+}
+
+.device-create-form {
+  width: 100%;
+}
+
+.private-key-panel {
+  display: grid;
+  gap: 12px;
+  padding-top: 16px;
+  border-top: 1px solid var(--line);
+}
+
+.private-key-panel p,
+.device-empty {
+  margin: 0;
+  color: var(--muted);
+}
+
+.device-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.device-list li {
+  display: flex;
+  min-height: 56px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  border-bottom: 1px solid var(--line);
+}
+
+.device-list small {
+  color: var(--muted);
+}
+
+.form-status {
+  min-height: 1.5em;
+  margin: 0;
+  color: var(--sage-700);
+}
+
+@media (max-width: 720px) {
+  .device-workspace {
+    grid-template-columns: 1fr;
+    gap: 32px;
+  }
 }
 
 .form-error {
@@ -677,10 +731,11 @@ input:focus-visible {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  *,
-  *::before,
-  *::after {
-    scroll-behavior: auto !important;
-    transition-duration: 0.01ms !important;
+  html {
+    scroll-behavior: auto;
+  }
+
+  .menu-toggle span {
+    transition: none;
   }
 }

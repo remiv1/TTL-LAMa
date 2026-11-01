@@ -3,7 +3,49 @@
     <h1 id="page-title">{{ title }}</h1>
     <p>{{ description }}</p>
 </section>
+{% if section == "devices" and g.get('current_user') %}
+<section class="device-workspace" aria-labelledby="page-title">
+    <form class="login-panel device-create-form" data-device-form data-endpoint="/api/v1/users/me/devices" hx-boost="false"
+        data-create-error="{{ text.device_error }}" data-success-text="{{ text.device_success }}"
+        data-keygen-error="{{ text.keygen_error }}" data-copied-text="{{ text.copied_private_key }}"
+        data-copy-error="{{ text.copy_private_key_error }}">
+        <label class="form-field" for="device-name">
+            {{ text.device_name }}
+            <input id="device-name" name="name" type="text" maxlength="255" required autocomplete="off">
+        </label>
+        <label class="form-field" for="device-public-key">
+            {{ text.public_key }}
+            <input id="device-public-key" name="public_key" type="text" maxlength="512" required autocomplete="off" spellcheck="false">
+        </label>
+        <button class="text-action" type="button" data-generate-keys>{{ text.generate_keys }}</button>
+        <div class="private-key-panel" data-private-key-panel hidden>
+            <label class="form-field" for="device-private-key">
+                {{ text.private_key }}
+                <input id="device-private-key" type="text" readonly autocomplete="off" spellcheck="false">
+            </label>
+            <p>{{ text.private_key_notice }}</p>
+            <button class="text-action" type="button" data-copy-private-key>{{ text.copy_private_key }}</button>
+        </div>
+        <button class="primary-action" type="submit">{{ text.create_device }}</button>
+        <output class="form-status" data-device-status aria-live="polite"></output>
+    </form>
+    <section class="device-inventory" aria-label="{{ text.devices }}">
+        <h2>{{ text.devices }}</h2>
+        {% if devices %}
+        <ul class="device-list" data-device-list>
+            {% for device in devices %}
+            <li><span>{{ device.name }}</span><small>#{{ device.id }}</small></li>
+            {% endfor %}
+        </ul>
+        {% else %}
+        <p class="device-empty" data-device-empty>{{ text.empty_devices }}</p>
+        <ul class="device-list" data-device-list hidden></ul>
+        {% endif %}
+    </section>
+</section>
+{% else %}
 <section class="pending-panel" aria-label="{{ text.not_available }}">
     <span class="pending-marker" aria-hidden="true"></span>
     <p>{{ text.pending }}</p>
 </section>
+{% endif %}

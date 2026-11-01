@@ -19,6 +19,7 @@ from flask import (
 )
 from werkzeug.wrappers import Response as WerkzeugResponse
 
+from api.common.repositories import DeviceRepository
 from auth.manager import AuthManager
 from auth.models import UnifiedUser
 
@@ -82,6 +83,20 @@ TEXT = {
 			"leases": "Review and manage your time-limited network access.",
 			"profiles": "Review the access profiles available to you.",
 		},
+		"device_name": "Device name",
+		"public_key": "Public key",
+		"generate_keys": "Generate a key pair",
+		"private_key": "Private key",
+		"copy_private_key": "Copy private key",
+		"create_device": "Create device",
+		"device_success": "Device created.",
+		"device_error": "The device could not be created.",
+		"keygen_error": "Key generation is not supported by this browser.",
+		"copied_private_key": "Private key copied.",
+		"copy_private_key_error": "Copy failed. Select and copy the key manually.",
+		"private_key_notice": "Save this private key now. It is generated in your " +
+		"browser and is never sent to the server.",
+		"empty_devices": "No devices yet.",
 	},
 	"fr": {
 		"brand": "TTL-LAMa",
@@ -142,6 +157,20 @@ TEXT = {
 			"leases": "Consultez et gérez vos accès réseau à durée limitée.",
 			"profiles": "Consultez les profils d’accès disponibles pour votre compte.",
 		},
+		"device_name": "Nom de l’appareil",
+		"public_key": "Clé publique",
+		"generate_keys": "Générer une paire de clés",
+		"private_key": "Clé privée",
+		"copy_private_key": "Copier la clé privée",
+		"create_device": "Créer l’appareil",
+		"device_success": "L’appareil a été créé.",
+		"device_error": "La création de l’appareil a échoué.",
+		"keygen_error": "Ce navigateur ne permet pas de générer les clés requises.",
+		"copied_private_key": "Clé privée copiée.",
+		"copy_private_key_error": "Copie impossible. Sélectionnez et copiez la clé manuellement.",
+		"private_key_notice": "Enregistrez cette clé privée maintenant. Elle est générée dans "
+		"votre navigateur et n’est jamais envoyée au serveur.",
+		"empty_devices": "Aucun appareil pour le moment.",
 	},
 }
 
@@ -295,9 +324,9 @@ def set_language() -> WerkzeugResponse:
 
 @web.get("/<section_name>")
 def show_section(section_name: str) -> str:
-    """Display a user section pending implementation.
+    """Display a user section, including the authenticated user's devices.
 
-    :param section_name: Name of the user section to display.
+	:param section_name: Name of the user section.
     :type section_name: str
     :return: Rendered section page.
     :rtype: str
@@ -307,10 +336,19 @@ def show_section(section_name: str) -> str:
 
     language = _selected_language()
     text = cast(dict[str, Any], TEXT[language])
+    user = cast(UnifiedUser | None, g.current_user)
+    devices = (
+        DeviceRepository(current_app.extensions["database_config"].session()).find(
+            user=str(user.id)
+        )
+        if section_name == "devices" and user is not None
+        else []
+    )
     return _render_page(
         "section.html",
         "fragments/section.html",
         section=section_name,
         title=text["section_title"][section_name],
         description=text["section_copy"][section_name],
+        devices=devices,
     )

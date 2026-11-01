@@ -5,6 +5,8 @@ from typing import cast
 from flask import Flask
 from flask.testing import FlaskClient
 
+from api.common.repositories import DeviceRepository, UserRepository
+
 
 def _csrf_headers(client: FlaskClient) -> dict[str, str]:
     response = client.get("/api/v1/csrf")
@@ -85,6 +87,42 @@ def test_navigation_is_keyboard_operable_and_sections_are_explicitly_pending(
         response = client.get(path)
         assert response.status_code == 200
         assert "not available yet" in response.get_data(as_text=True)
+
+
+def test_authenticated_device_page_shows_creation_form_and_owned_devices(
+    app: Flask,
+) -> None:
+    """The signed-in user can create a device and sees only their own inventory."""
+    database_session = app.extensions["database_config"].session()
+    user = UserRepository(database_session).create(username="device-page-user")
+    device = DeviceRepository(database_session).create(
+        str(user.id), "existing-laptop", "existing-public-key"
+    )
+    database_session.commit()
+    manager = app.extensions["auth_manager"]
+    token = manager.session_service.create(str(user.id))
+    client = app.test_client()
+    client.set_cookie(cast(str, app.config["AUTH_COOKIE_NAME"]), token)
+
+    response = client.get("/devices")
+    body = response.get_data(as_text=True)
+
+    assert response.status_code == 200
+    assert 'data-device-form' in body
+    assert 'data-endpoint="/api/v1/users/me/devices"' in body
+    assert "Generate a key pair" in body
+    assert "existing-laptop" in body
+    assert f"#{device.id}" in body
+    assert "Private key" in body
+    assert 'name="private_key"' not in body
+
+    created = client.post(
+        "/api/v1/users/me/devices",
+        json={"name": "browser-device", "public_key": "browser-public-key"},
+        headers=_csrf_headers(client),
+    )
+    assert created.status_code == 201
+    assert created.get_json()["name"] == "browser-device"
 
 
 def test_internal_login_account_status_and_logout(app: Flask) -> None:
