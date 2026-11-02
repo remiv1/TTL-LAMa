@@ -19,8 +19,14 @@ from flask import (
 )
 from werkzeug.wrappers import Response as WerkzeugResponse
 
-from api.common.repositories import DeviceRepository
-from auth.manager import AuthManager
+from api.database import get_session
+from api.common.repositories import (
+	DeviceRepository,
+	LeaseRepository,
+	ProfileRepository,
+)
+from api.common.repositories.leases import lease_status
+from auth.manager import get_optional_manager
 from auth.models import UnifiedUser
 
 LANGUAGE_COOKIE = "ttl_lama_language"
@@ -76,27 +82,79 @@ TEXT = {
 		"section_title": {
 			"devices": "Your devices",
 			"leases": "Your access leases",
-			"profiles": "Available access profiles",
+			"profiles": "Your assigned access profiles",
 		},
 		"section_copy": {
 			"devices": "Manage the devices associated with your account.",
 			"leases": "Review and manage your time-limited network access.",
-			"profiles": "Review the access profiles available to you.",
+			"profiles": "Review the access profiles assigned to your account.",
 		},
 		"device_name": "Device name",
+		"add_device": "Add device",
+		"device_details": "Device details",
+		"device_identifier": "Device ID",
+		"device_created": "Created",
 		"public_key": "Public key",
 		"generate_keys": "Generate a key pair",
 		"private_key": "Private key",
 		"copy_private_key": "Copy private key",
 		"create_device": "Create device",
+		"close": "Close",
 		"device_success": "Device created.",
 		"device_error": "The device could not be created.",
+		"delete_device": "Revoke device",
+		"delete_device_title": "Revoke this device?",
+		"delete_device_notice": "This will revoke the device and all of its active access leases." +
+            "Device history will be retained.",
+		"confirm_delete_device": "Revoke device",
+		"cancel": "Cancel",
+		"delete_device_success": "Device revoked.",
+		"delete_device_error": "The device could not be revoked.",
 		"keygen_error": "Key generation is not supported by this browser.",
 		"copied_private_key": "Private key copied.",
 		"copy_private_key_error": "Copy failed. Select and copy the key manually.",
 		"private_key_notice": "Save this private key now. It is generated in your " +
 		"browser and is never sent to the server.",
 		"empty_devices": "No devices yet.",
+		"profile_id": "Profile",
+		"default_duration": "Default duration",
+		"maximum_duration": "Maximum duration",
+		"allowed_networks": "Allowed networks",
+		"empty_profiles": "No access profiles are assigned to your account yet.",
+		"policy_unavailable": "No access policy is currently associated with this profile.",
+		"add_lease": "Request access",
+		"create_lease_title": "Request network access",
+		"create_lease": "Create lease",
+		"lease_success": "Access lease created.",
+		"lease_error": "The access lease could not be created.",
+		"lease_details": "Lease details",
+		"lease_identifier": "Lease ID",
+		"lease_device": "Device",
+		"lease_profile": "Access profile",
+		"lease_status": "Status",
+		"lease_created": "Created",
+		"lease_ends": "Access ends",
+		"lease_revoked_at": "Revoked at",
+		"lease_duration": "Requested duration",
+		"duration_optional": "Optional duration",
+		"duration_help": "Leave blank to use the profile default. Use d, h, m, or s units.",
+		"lease_default": "Default duration",
+		"lease_maximum": "Maximum duration",
+		"lease_networks": "Allowed networks",
+		"empty_current_leases": "No active or expired leases.",
+		"empty_leases": "No access leases yet.",
+		"empty_lease_devices": "Add an active device before requesting access.",
+		"empty_lease_profiles": "No eligible assigned access profiles are available.",
+		"revoked_leases": "Revoked leases",
+		"active_status": "Active",
+		"expired_status": "Expired",
+		"revoked_status": "Revoked",
+		"revoke_lease": "Revoke lease",
+		"revoke_lease_title": "Revoke this access lease?",
+		"revoke_lease_notice": "Access will end immediately. The lease history will be retained.",
+		"confirm_revoke_lease": "Revoke lease",
+		"lease_revoke_success": "Access lease revoked.",
+		"lease_revoke_error": "The access lease could not be revoked.",
 	},
 	"fr": {
 		"brand": "TTL-LAMa",
@@ -150,27 +208,80 @@ TEXT = {
 		"section_title": {
 			"devices": "Vos appareils",
 			"leases": "Vos baux d’accès",
-			"profiles": "Profils d’accès disponibles",
+			"profiles": "Vos profils d’accès attribués",
 		},
 		"section_copy": {
 			"devices": "Gérez les appareils associés à votre compte.",
 			"leases": "Consultez et gérez vos accès réseau à durée limitée.",
-			"profiles": "Consultez les profils d’accès disponibles pour votre compte.",
+			"profiles": "Consultez les profils d’accès attribués à votre compte.",
 		},
 		"device_name": "Nom de l’appareil",
+		"add_device": "Ajouter un appareil",
+		"device_details": "Détails de l’appareil",
+		"device_identifier": "Identifiant de l’appareil",
+		"device_created": "Créé le",
 		"public_key": "Clé publique",
 		"generate_keys": "Générer une paire de clés",
 		"private_key": "Clé privée",
 		"copy_private_key": "Copier la clé privée",
 		"create_device": "Créer l’appareil",
+		"close": "Fermer",
 		"device_success": "L’appareil a été créé.",
 		"device_error": "La création de l’appareil a échoué.",
+		"delete_device": "Révoquer l’appareil",
+		"delete_device_title": "Révoquer cet appareil ?",
+		"delete_device_notice": "Cette action révoquera l’appareil ainsi que tous ses baux d’accès actifs. " +
+            "L’historique de l’appareil sera conservé.",
+		"confirm_delete_device": "Révoquer l’appareil",
+		"cancel": "Annuler",
+		"delete_device_success": "L’appareil a été révoqué.",
+		"delete_device_error": "La révocation de l’appareil a échoué.",
 		"keygen_error": "Ce navigateur ne permet pas de générer les clés requises.",
 		"copied_private_key": "Clé privée copiée.",
 		"copy_private_key_error": "Copie impossible. Sélectionnez et copiez la clé manuellement.",
 		"private_key_notice": "Enregistrez cette clé privée maintenant. Elle est générée dans "
 		"votre navigateur et n’est jamais envoyée au serveur.",
 		"empty_devices": "Aucun appareil pour le moment.",
+		"profile_id": "Profil",
+		"default_duration": "Durée par défaut",
+		"maximum_duration": "Durée maximale",
+		"allowed_networks": "Réseaux autorisés",
+		"empty_profiles": "Aucun profil d’accès n’est attribué à votre compte pour le moment.",
+		"policy_unavailable": "Aucune politique d’accès n’est actuellement associée à ce profil.",
+		"add_lease": "Demander un accès",
+		"create_lease_title": "Demander un accès réseau",
+		"create_lease": "Créer le bail",
+		"lease_success": "Le bail d’accès a été créé.",
+		"lease_error": "La création du bail d’accès a échoué.",
+		"lease_details": "Détails du bail",
+		"lease_identifier": "Identifiant du bail",
+		"lease_device": "Appareil",
+		"lease_profile": "Profil d’accès",
+		"lease_status": "État",
+		"lease_created": "Créé le",
+		"lease_ends": "Fin de l’accès",
+		"lease_revoked_at": "Révoqué le",
+		"lease_duration": "Durée demandée",
+		"duration_optional": "Durée facultative",
+		"duration_help": "Laissez vide pour utiliser la durée par défaut du profil. " +
+        "Unités : d, h, m ou s.",
+		"lease_default": "Durée par défaut",
+		"lease_maximum": "Durée maximale",
+		"lease_networks": "Réseaux autorisés",
+		"empty_current_leases": "Aucun bail actif ou expiré.",
+		"empty_leases": "Aucun bail d’accès pour le moment.",
+		"empty_lease_devices": "Ajoutez un appareil actif avant de demander un accès.",
+		"empty_lease_profiles": "Aucun profil d’accès attribué et utilisable n’est disponible.",
+		"revoked_leases": "Baux révoqués",
+		"active_status": "Actif",
+		"expired_status": "Expiré",
+		"revoked_status": "Révoqué",
+		"revoke_lease": "Révoquer le bail",
+		"revoke_lease_title": "Révoquer ce bail d’accès ?",
+		"revoke_lease_notice": "L’accès prendra fin immédiatement. L’historique du bail sera conservé.",
+		"confirm_revoke_lease": "Révoquer le bail",
+		"lease_revoke_success": "Le bail d’accès a été révoqué.",
+		"lease_revoke_error": "La révocation du bail d’accès a échoué.",
 	},
 }
 
@@ -214,10 +325,7 @@ def load_current_user() -> None:
     :return: None
     :rtype: None
     """
-    manager = cast(
-        AuthManager | None,
-        current_app.extensions.get("auth_manager"),
-    )
+    manager = get_optional_manager()
     cookie_name = cast(str, current_app.config["AUTH_COOKIE_NAME"])
     token = request.cookies.get(cookie_name)
     g.current_user = manager.get_current_user(token) if manager and token else None
@@ -274,7 +382,7 @@ def logout():
     """
     cookie_name = cast(str, current_app.config["AUTH_COOKIE_NAME"])
     token = request.cookies.get(cookie_name)
-    manager = cast(AuthManager | None, current_app.extensions.get("auth_manager"))
+    manager = get_optional_manager()
     if manager is not None and token:
         manager.logout(token)
 
@@ -324,9 +432,9 @@ def set_language() -> WerkzeugResponse:
 
 @web.get("/<section_name>")
 def show_section(section_name: str) -> str:
-    """Display a user section, including the authenticated user's devices.
+    """Display a user section, including the user's devices or assigned profiles.
 
-	:param section_name: Name of the user section.
+    :param section_name: Name of the user section.
     :type section_name: str
     :return: Rendered section page.
     :rtype: str
@@ -338,12 +446,48 @@ def show_section(section_name: str) -> str:
     text = cast(dict[str, Any], TEXT[language])
     user = cast(UnifiedUser | None, g.current_user)
     devices = (
-        DeviceRepository(current_app.extensions["database_config"].session()).find(
-            user=str(user.id)
-        )
-        if section_name == "devices" and user is not None
+        [
+            device
+            for device in DeviceRepository(get_session()).find(user=str(user.id))
+            if device.revoked_at is None
+        ]
+        if section_name in {"devices", "leases"} and user is not None
         else []
-    )
+	)
+    profiles: list[dict[str, object]] = []
+    lease_profiles: list[dict[str, object]] = []
+    current_leases: list[dict[str, object]] = []
+    revoked_leases: list[dict[str, object]] = []
+    if section_name == "profiles" and user is not None:
+        repository = ProfileRepository(get_session())
+        profiles = [
+            {"profile": profile, "policy": repository.policy(profile)}
+            for profile in repository.find(user=str(user.id))
+        ]
+    if section_name == "leases" and user is not None:
+        profile_repository = ProfileRepository(get_session())
+        lease_profiles = [
+            {"profile": profile, "policy": policy}
+            for profile in profile_repository.find(user=str(user.id))
+            if profile.revoked_at is None
+            and (policy := profile_repository.policy(profile)) is not None
+        ]
+        leases = sorted(
+            LeaseRepository(get_session()).find(user=str(user.id)),
+            key=lambda lease: lease.created_at,
+            reverse=True,
+        )
+        for lease in leases:
+            item: dict[str, object] = {
+                "lease": lease,
+                "status": lease_status(lease),
+                "device": lease.device,
+                "profile": lease.profile,
+            }
+            if item["status"] == "revoked":
+                revoked_leases.append(item)
+            else:
+                current_leases.append(item)
     return _render_page(
         "section.html",
         "fragments/section.html",
@@ -351,4 +495,8 @@ def show_section(section_name: str) -> str:
         title=text["section_title"][section_name],
         description=text["section_copy"][section_name],
         devices=devices,
+        profiles=profiles,
+        lease_profiles=lease_profiles,
+        current_leases=current_leases,
+        revoked_leases=revoked_leases,
     )

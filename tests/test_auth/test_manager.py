@@ -2,11 +2,29 @@
 
 from typing import cast
 
+import pytest
+from flask import Flask
+
 from auth.backends import AuthBackend
-from auth.manager import AuthManager
+from auth.manager import AuthManager, get_manager, get_optional_manager
 from auth.models import AuthenticationResult, UnifiedUser
 from auth.services import SessionService, UserService
 from api.common.db_objects import User
+
+
+def test_manager_accessors_preserve_required_and_optional_behavior() -> None:
+    """Optional lookup returns None while required lookup raises when unconfigured."""
+    app = Flask(__name__)
+
+    with app.app_context():
+        assert get_optional_manager() is None
+        with pytest.raises(RuntimeError, match="Authentication manager not configured"):
+            get_manager()
+
+        manager = object()
+        app.extensions["auth_manager"] = manager
+        assert get_optional_manager() is manager
+        assert get_manager() is manager
 
 
 class FakeBackend(AuthBackend):

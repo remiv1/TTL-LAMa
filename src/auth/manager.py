@@ -5,6 +5,8 @@
 """
 from __future__ import annotations
 
+from typing import cast
+
 from flask import Response, current_app
 
 from auth.backends import AuthBackend
@@ -13,10 +15,15 @@ from auth.services import SessionService, UserService
 
 def get_manager() -> AuthManager:
     """Retrieve the current AuthManager instance from the Flask application context."""
-    manager = current_app.extensions.get("auth_manager")
+    manager = get_optional_manager()
     if manager is None:
         raise RuntimeError("Authentication manager not configured.")
     return manager
+
+
+def get_optional_manager() -> AuthManager | None:
+    """Retrieve the current AuthManager if one is configured."""
+    return cast(AuthManager | None, current_app.extensions.get("auth_manager"))
 
 
 class AuthManager:

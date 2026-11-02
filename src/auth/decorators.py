@@ -17,7 +17,7 @@ from typing import ParamSpec, TypeVar, cast
 
 from flask import abort, current_app, g, request
 
-from auth.manager import AuthManager
+from auth.manager import get_optional_manager
 from auth.models import UnifiedUser
 
 P = ParamSpec("P")
@@ -47,10 +47,7 @@ def require_authenticated_user(view: Callable[P, R]) -> Callable[P, R]:
             cookie_name = cast(str, current_app.config["AUTH_COOKIE_NAME"])
             session_token = request.cookies.get(cookie_name)
 
-        auth_manager = cast(
-            AuthManager | None,
-            current_app.extensions.get("auth_manager"),
-        )
+        auth_manager = get_optional_manager()
         user = (
             auth_manager.get_current_user(session_token)
             if auth_manager is not None

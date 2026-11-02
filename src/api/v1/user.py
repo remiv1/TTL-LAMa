@@ -27,7 +27,7 @@ from .admin import (
     invalid_request,
     saved,
     serialize,
-    session,
+    get_session,
 )
 from .admin.schemas import DeviceCreate, LeaseCreate
 
@@ -55,7 +55,7 @@ user_api.register_error_handler(SQLAlchemyError, database_error)
 @user_api.get("/devices")
 def list_devices() -> Response:
     """List all devices owned by the authenticated user."""
-    repository = DeviceRepository(session())
+    repository = DeviceRepository(get_session())
     devices = repository.find(user=str(get_authenticated_user().id))
     return jsonify([serialize(device) for device in devices])
 
@@ -63,7 +63,7 @@ def list_devices() -> Response:
 @user_api.get("/devices/<int:device_id>")
 def get_device(device_id: int) -> Response:
     """Read an owned device without exposing another user's records."""
-    device = DeviceRepository(session()).get_owned(
+    device = DeviceRepository(get_session()).get_owned(
         device_id, str(get_authenticated_user().id)
     )
     return jsonify(serialize(device))
@@ -73,7 +73,7 @@ def get_device(device_id: int) -> Response:
 def add_device() -> tuple[Response, int]:
     """Create a device owned by the authenticated user."""
     data = body(DeviceCreate)
-    device = DeviceRepository(session()).create(
+    device = DeviceRepository(get_session()).create(
         str(get_authenticated_user().id), data.name, data.public_key
     )
     return saved(device, 201)
@@ -82,24 +82,24 @@ def add_device() -> tuple[Response, int]:
 @user_api.delete("/devices/<int:device_id>")
 def delete_device(device_id: int) -> tuple[Response, int]:
     """Revoke an owned device and its active leases."""
-    repository = DeviceRepository(session())
+    repository = DeviceRepository(get_session())
     device = repository.get_owned(device_id, str(get_authenticated_user().id))
     repository.block(device)
-    session().commit()
+    get_session().commit()
     return Response(status=204), 204
 
 
 @user_api.get("/leases")
 def list_leases() -> Response:
     """List all leases owned by the authenticated user."""
-    leases = LeaseRepository(session()).find(user=str(get_authenticated_user().id))
+    leases = LeaseRepository(get_session()).find(user=str(get_authenticated_user().id))
     return jsonify([serialize(lease) for lease in leases])
 
 
 @user_api.get("/leases/<int:lease_id>")
 def get_lease(lease_id: int) -> Response:
     """Read an owned lease without exposing another user's records."""
-    lease = LeaseRepository(session()).get_owned(
+    lease = LeaseRepository(get_session()).get_owned(
         lease_id, str(get_authenticated_user().id)
     )
     return jsonify(serialize(lease))
@@ -109,7 +109,7 @@ def get_lease(lease_id: int) -> Response:
 def create_lease() -> tuple[Response, int]:
     """Create a lease subject to the user's device and profile policy."""
     data = body(LeaseCreate)
-    lease = LeaseRepository(session()).create(
+    lease = LeaseRepository(get_session()).create(
         user_id=str(get_authenticated_user().id),
         device_id=data.device_id,
         profile_id=data.profile_id,
@@ -121,6 +121,6 @@ def create_lease() -> tuple[Response, int]:
 @user_api.post("/leases/<int:lease_id>/revoke")
 def revoke_lease(lease_id: int) -> tuple[Response, int]:
     """Revoke an owned lease without deleting its history."""
-    repository = LeaseRepository(session())
+    repository = LeaseRepository(get_session())
     lease = repository.get_owned(lease_id, str(get_authenticated_user().id))
     return saved(repository.revoke(lease))

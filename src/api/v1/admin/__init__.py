@@ -52,7 +52,6 @@ from uuid import UUID
 from flask import Blueprint, Response, current_app, jsonify, request
 from pydantic import BaseModel, ValidationError
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
-from sqlalchemy.orm import Session
 from werkzeug.exceptions import HTTPException
 
 from api.common.db_objects._common import Base
@@ -64,6 +63,7 @@ from api.common.repositories import (
 )
 from api.common.repositories.leases import lease_status
 from api.config.c_profiles import AccessProfile
+from api.database import get_session
 from auth.backends.internal import InternalAuthBackend
 from auth.decorators import require_admin
 from auth.manager import get_manager
@@ -95,15 +95,6 @@ def prevent_caching(response: Response) -> Response:
     """
     response.headers["Cache-Control"] = "no-store"
     return response
-
-
-def session() -> Session:
-    """Obtain the current request-scoped database session.
-    
-    :return: The current request-scoped database session.
-    :rtype: Session
-    """
-    return current_app.extensions["database_config"].session()
 
 
 def body(schema: type[Schema]) -> Schema:
@@ -156,7 +147,7 @@ def serialize(instance: Base) -> dict[str, object]:
         result["status"] = lease_status(instance)
         result["profile_id"] = instance.profile_user.profile_id
     if isinstance(instance, Profile):
-        policy = ProfileRepository(session()).policy(instance)
+        policy = ProfileRepository(get_session()).policy(instance)
         result["policy"] = policy.model_dump(mode="json") if policy else None
     return result
 
@@ -171,7 +162,7 @@ def saved(instance: Base, status: int = 200) -> tuple[Response, int]:
     :return: A tuple containing the JSON response and the HTTP status code.
     :rtype: tuple[Response, int]
     """
-    session().commit()
+    get_session().commit()
     return jsonify(serialize(instance)), status
 
 
@@ -210,7 +201,7 @@ def invalid_request(error: ValueError) -> tuple[Response, int]:
     :return: A tuple containing the JSON response and the HTTP status code.
     :rtype: tuple[Response, int]
     """
-    session().rollback()
+    get_session().rollback()
     if isinstance(error, ValidationError):
         return jsonify(error="Invalid input", details=error.errors(
             include_input=False, include_context=False, include_url=False
@@ -231,7 +222,7 @@ def database_error(error: SQLAlchemyError) -> tuple[Response, int]:
     :return: A tuple containing the JSON response and the HTTP status code.
     :rtype: tuple[Response, int]
     """
-    session().rollback()
+    get_session().rollback()
     if isinstance(error, IntegrityError):
         return jsonify(error="Operation conflicts with existing data"), 409
     current_app.logger.error("Admin database operation failed: %s", type(error).__name__)
@@ -242,7 +233,7 @@ def database_error(error: SQLAlchemyError) -> tuple[Response, int]:
 def list_users() -> Response:
     """List users with combined relationship filters."""
     query = filters(UserFilters)
-    users = UserRepository(session()).find(
+    users = UserRepository(get_session()).find(
         device=query.device, lease=query.lease, profile=query.profile
     )
     return jsonify([serialize(user) for user in users])
@@ -251,7 +242,7 @@ def list_users() -> Response:
 @admin.get("/users/<uuid:user_id>")
 def get_user(user_id: UUID) -> Response:
     """Read a user without exposing authentication data."""
-    return jsonify(serialize(UserRepository(session()).get(str(user_id))))
+    return jsonify(serialize(UserRepository(get_session()).get(str(user_id))))
 
 
 @admin.post("/users")
@@ -264,13 +255,13 @@ def create_user() -> tuple[Response, int]:
         generated_password = secrets.token_urlsafe(32)
         password = generated_password
 
-    user = UserRepository(session()).create(
+    user = UserRepository(get_session()).create(
         username=data.username, email=data.email,
         enabled=data.enabled, is_admin=data.is_admin,
         password_hash=hash_password(password) if password is not None else None,
     )
     if generated_password is not None:
-        session().commit()
+        get_session().commit()
         return jsonify(
             user=serialize(user),
             generated_password=generated_password,
@@ -282,7 +273,7 @@ def create_user() -> tuple[Response, int]:
 def update_user(user_id: UUID) -> tuple[Response, int]:
     """Update an identity, invalidating sessions after sensitive changes."""
     data = body(UserPatch)
-    repository = UserRepository(session())
+    repository = UserRepository(get_session())
     user = repository.get(str(user_id))
     if data.username is not None:
         user.username = data.username
@@ -302,28 +293,28 @@ def update_user(user_id: UUID) -> tuple[Response, int]:
 @admin.delete("/users/<uuid:user_id>")
 def delete_user(user_id: UUID) -> tuple[Response, int]:
     """Logically delete an identity and its dependent access."""
-    repository = UserRepository(session())
+    repository = UserRepository(get_session())
     repository.disable(repository.get(str(user_id)))
-    session().commit()
+    get_session().commit()
     return Response(status=204), 204
 
 
 @admin.get("/users/<uuid:user_id>/profiles")
 def list_user_profiles(user_id: UUID) -> Response:
     """Read active profile assignments for an existing user."""
-    UserRepository(session()).get(str(user_id))
+    UserRepository(get_session()).get(str(user_id))
     return jsonify(
         [serialize(profile) for profile in
-        ProfileRepository(session()).find(user=str(user_id))]
+        ProfileRepository(get_session()).find(user=str(user_id))]
     )
 
 
 @admin.put("/users/<uuid:user_id>/profiles/<int:profile_id>")
 def assign_profile(user_id: UUID, profile_id: int) -> tuple[Response, int]:
     """Assign a profile idempotently."""
-    repository = ProfileRepository(session())
+    repository = ProfileRepository(get_session())
     assignment = repository.assign(
-        UserRepository(session()).get(str(user_id)), repository.get(profile_id)
+        UserRepository(get_session()).get(str(user_id)), repository.get(profile_id)
     )
     return saved(assignment)
 
@@ -331,11 +322,11 @@ def assign_profile(user_id: UUID, profile_id: int) -> tuple[Response, int]:
 @admin.delete("/users/<uuid:user_id>/profiles/<int:profile_id>")
 def unassign_profile(user_id: UUID, profile_id: int) -> tuple[Response, int]:
     """Revoke an assignment and its leases."""
-    repository = ProfileRepository(session())
+    repository = ProfileRepository(get_session())
     repository.unassign(
-        UserRepository(session()).get(str(user_id)), repository.get(profile_id)
+        UserRepository(get_session()).get(str(user_id)), repository.get(profile_id)
     )
-    session().commit()
+    get_session().commit()
     return Response(status=204), 204
 
 
@@ -343,7 +334,7 @@ def unassign_profile(user_id: UUID, profile_id: int) -> tuple[Response, int]:
 def list_devices() -> Response:
     """List devices through optional lease and profile filters."""
     query = filters(DeviceFilters)
-    return jsonify([serialize(device) for device in DeviceRepository(session()).find(
+    return jsonify([serialize(device) for device in DeviceRepository(get_session()).find(
         lease=query.lease, profile=query.profile
     )])
 
@@ -351,14 +342,14 @@ def list_devices() -> Response:
 @admin.get("/devices/<int:device_id>")
 def get_device(device_id: int) -> Response:
     """Read a device."""
-    return jsonify(serialize(DeviceRepository(session()).get(device_id)))
+    return jsonify(serialize(DeviceRepository(get_session()).get(device_id)))
 
 
 @admin.patch("/devices/<int:device_id>")
 def update_device(device_id: int) -> tuple[Response, int]:
     """Update supported device metadata."""
     data = body(DevicePatch)
-    repository = DeviceRepository(session())
+    repository = DeviceRepository(get_session())
     return saved(repository.update(
         repository.get(device_id), name=data.name, public_key=data.public_key
     ))
@@ -367,16 +358,16 @@ def update_device(device_id: int) -> tuple[Response, int]:
 @admin.post("/devices/<int:device_id>/block")
 def block_device(device_id: int) -> tuple[Response, int]:
     """Block a device and revoke its leases."""
-    repository = DeviceRepository(session())
+    repository = DeviceRepository(get_session())
     return saved(repository.block(repository.get(device_id)))
 
 
 @admin.delete("/devices/<int:device_id>")
 def delete_device(device_id: int) -> tuple[Response, int]:
     """Logically delete a device using its revocation state."""
-    repository = DeviceRepository(session())
+    repository = DeviceRepository(get_session())
     repository.block(repository.get(device_id))
-    session().commit()
+    get_session().commit()
     return Response(status=204), 204
 
 
@@ -384,7 +375,7 @@ def delete_device(device_id: int) -> tuple[Response, int]:
 def list_leases() -> Response:
     """List leases using combined filters and derived lifecycle status."""
     query = filters(LeaseFilters)
-    return jsonify([serialize(lease) for lease in LeaseRepository(session()).find(
+    return jsonify([serialize(lease) for lease in LeaseRepository(get_session()).find(
         user=str(query.user) if query.user else None, device=query.device,
         profile=query.profile, status=query.status,
     )])
@@ -393,13 +384,13 @@ def list_leases() -> Response:
 @admin.get("/leases/<int:lease_id>")
 def get_lease(lease_id: int) -> Response:
     """Read a lease."""
-    return jsonify(serialize(LeaseRepository(session()).get(lease_id)))
+    return jsonify(serialize(LeaseRepository(get_session()).get(lease_id)))
 
 
 @admin.post("/leases/<int:lease_id>/revoke")
 def revoke_lease(lease_id: int) -> tuple[Response, int]:
     """Revoke a lease without deleting history."""
-    repository = LeaseRepository(session())
+    repository = LeaseRepository(get_session())
     return saved(repository.revoke(repository.get(lease_id)))
 
 
@@ -407,7 +398,7 @@ def revoke_lease(lease_id: int) -> tuple[Response, int]:
 def list_profiles() -> Response:
     """List persisted profile policies."""
     query = filters(ProfileFilters)
-    return jsonify([serialize(profile) for profile in ProfileRepository(session()).find(
+    return jsonify([serialize(profile) for profile in ProfileRepository(get_session()).find(
         user=str(query.user) if query.user else None, device=query.device, lease=query.lease
     )])
 
@@ -415,7 +406,7 @@ def list_profiles() -> Response:
 @admin.get("/profiles/<int:profile_id>")
 def get_profile(profile_id: int) -> Response:
     """Read a profile and its policy."""
-    return jsonify(serialize(ProfileRepository(session()).get(profile_id)))
+    return jsonify(serialize(ProfileRepository(get_session()).get(profile_id)))
 
 
 @admin.post("/profiles")
@@ -423,14 +414,14 @@ def create_profile() -> tuple[Response, int]:
     """Create a profile with a validated duration and network policy."""
     data = body(ProfileCreate)
     policy = AccessProfile.model_validate(data.model_dump(exclude={"name"}))
-    return saved(ProfileRepository(session()).create(data.name, policy), 201)
+    return saved(ProfileRepository(get_session()).create(data.name, policy), 201)
 
 
 @admin.patch("/profiles/<int:profile_id>")
 def update_profile(profile_id: int) -> tuple[Response, int]:
     """Validate the complete merged policy before staging any changes."""
     data = body(ProfilePatch)
-    repository = ProfileRepository(session())
+    repository = ProfileRepository(get_session())
     profile = repository.get(profile_id)
     if profile.revoked_at is not None:
         raise ConflictError("Cannot update a revoked profile")
@@ -449,7 +440,7 @@ def update_profile(profile_id: int) -> tuple[Response, int]:
 @admin.delete("/profiles/<int:profile_id>")
 def delete_profile(profile_id: int) -> tuple[Response, int]:
     """Revoke the profile and all dependent access."""
-    repository = ProfileRepository(session())
+    repository = ProfileRepository(get_session())
     repository.delete(repository.get(profile_id))
-    session().commit()
+    get_session().commit()
     return Response(status=204), 204

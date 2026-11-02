@@ -2,7 +2,6 @@
 
 .. functions::
     - `create_app`: Create the Flask application and initialize its extensions.
-    - `get_sessions`: Return a new database scoped_session.
 
 .. constants::
     - `LOGGER`: Logger instance for the module.
@@ -19,7 +18,7 @@ from datetime import timedelta
 from argon2 import PasswordHasher
 from authlib.integrations.flask_client import OAuth
 from authlib.integrations.flask_client.apps import FlaskOAuth2App
-from flask import Flask, Response, current_app
+from flask import Flask, Response
 from flask_wtf.csrf import CSRFProtect
 from flask_cors import CORS
 from sqlalchemy.orm import Session
@@ -279,12 +278,3 @@ def create_app(
     _register_security_headers(app, flask_settings)
     _register_database_teardown(app, database)
     return app
-
-
-def get_sessions() -> Session:
-    """Return a new database session.
-
-    :returns: A SQLAlchemy session.
-    :rtype: Session
-    """
-    return current_app.extensions["database_config"].session()

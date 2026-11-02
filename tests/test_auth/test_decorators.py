@@ -78,6 +78,21 @@ def test_missing_token_is_rejected() -> None:
     assert manager.requested_tokens == [None]
 
 
+def test_missing_manager_is_rejected() -> None:
+    """A missing auth manager continues to produce an unauthorized response."""
+    app = Flask(__name__)
+    app.config["AUTH_COOKIE_NAME"] = "ttl-lama_session"
+
+    @app.get("/protected")
+    @require_authenticated_user
+    def protected() -> str:
+        return "unreachable"
+
+    response = app.test_client().get("/protected")
+
+    assert response.status_code == 401
+
+
 def test_invalid_bearer_token_is_rejected() -> None:
     """Test that an invalid Bearer token results in rejection with 401."""
     manager = FakeAuthManager()

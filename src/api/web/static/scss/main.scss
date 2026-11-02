@@ -495,13 +495,171 @@ input:focus-visible {
 
 .device-workspace {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(240px, 0.8fr);
+  grid-template-columns: minmax(240px, 0.78fr) minmax(0, 1.22fr);
   align-items: start;
-  gap: 48px;
+  gap: 40px;
+}
+
+.device-inventory-heading,
+.device-dialog-heading,
+.device-dialog-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.device-inventory-heading {
+  margin-bottom: 12px;
+}
+
+.device-inventory-heading h2,
+.device-detail h2,
+.device-dialog h2 {
+  margin: 0;
+  color: var(--sage-900);
+  font-size: 22px;
+  font-weight: 600;
+}
+
+.device-list li {
+  border-bottom: 1px solid var(--line);
+}
+
+.device-select {
+  display: flex;
+  width: 100%;
+  min-height: 58px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 10px 12px;
+  border: 0;
+  color: var(--ink);
+  background: transparent;
+  cursor: pointer;
+  text-align: left;
+}
+
+.device-select:hover,
+.device-select[aria-pressed="true"] {
+  color: var(--sage-900);
+  background: var(--sage-100);
+}
+
+.device-select[aria-pressed="true"] {
+  box-shadow: inset 3px 0 var(--amber-500);
+  font-weight: 600;
+}
+
+.device-select span,
+.device-select small {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.device-select small {
+  flex: 0 0 auto;
+  color: var(--muted);
+}
+
+.device-detail {
+  min-width: 0;
+  padding: 8px 0 8px 32px;
+  border-left: 1px solid var(--line);
+}
+
+.device-detail-list {
+  display: grid;
+  gap: 18px;
+  margin: 24px 0;
+}
+
+.device-detail-list div {
+  min-width: 0;
+}
+
+.device-detail-list dt {
+  color: var(--muted);
+  font-size: 14px;
+}
+
+.device-detail-list dd {
+  margin: 4px 0 0;
+  overflow-wrap: anywhere;
+}
+
+.device-detail-list code {
+  color: var(--ink);
+  font-family: monospace;
+  font-size: 14px;
+  overflow-wrap: anywhere;
+}
+
+.device-dialog {
+  width: min(620px, calc(100vw - 32px));
+  max-width: 100%;
+  max-height: min(82dvh, 760px);
+  overflow: auto;
+  padding: 28px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  color: var(--ink);
+  background: var(--paper);
+  box-shadow: 0 24px 64px rgb(24 35 30 / 24%);
+}
+
+.device-dialog::backdrop {
+  background: rgb(24 35 30 / 58%);
+}
+
+.device-dialog-heading {
+  margin-bottom: 20px;
 }
 
 .device-create-form {
   width: 100%;
+  max-width: none;
+  padding: 0;
+  border: 0;
+  background: transparent;
+}
+
+.device-delete-dialog > p {
+  margin: 16px 0;
+  color: var(--muted);
+}
+
+.device-delete-dialog > .device-delete-target {
+  color: var(--ink);
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.device-dialog-actions {
+  justify-content: flex-end;
+  margin-top: 24px;
+}
+
+.danger-action {
+  display: inline-flex;
+  min-height: 44px;
+  align-items: center;
+  justify-content: center;
+  width: fit-content;
+  padding: 9px 16px;
+  border: 1px solid var(--error);
+  border-radius: 4px;
+  color: var(--paper);
+  background: var(--error);
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.danger-action:disabled,
+.primary-action:disabled {
+  cursor: wait;
+  opacity: 0.65;
 }
 
 .private-key-panel {
@@ -536,6 +694,183 @@ input:focus-visible {
   color: var(--muted);
 }
 
+.profile-inventory {
+  max-width: 900px;
+}
+
+.profile-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.profile-list > li {
+  padding: 20px 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.profile-heading {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.profile-heading h3 {
+  margin: 0;
+  color: var(--sage-900);
+  font-size: 20px;
+}
+
+.profile-heading span,
+.profile-policy dt {
+  color: var(--muted);
+}
+
+.profile-policy {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px 32px;
+  margin: 18px 0 0;
+}
+
+.profile-policy div {
+  min-width: 0;
+}
+
+.profile-policy dd {
+  margin: 5px 0 0;
+  overflow-wrap: anywhere;
+}
+
+.profile-policy-networks {
+  grid-column: 1 / -1;
+}
+
+.profile-networks {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 20px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.profile-networks code {
+  color: var(--ink);
+  font-family: monospace;
+}
+
+.lease-workspace {
+  display: grid;
+  grid-template-columns: minmax(260px, 0.82fr) minmax(0, 1.18fr);
+  align-items: start;
+  gap: 40px;
+}
+
+.lease-inventory {
+  min-width: 0;
+}
+
+.lease-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.lease-list li {
+  border-bottom: 1px solid var(--line);
+}
+
+.lease-select {
+  display: flex;
+  width: 100%;
+  min-height: 58px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 10px 12px;
+  border: 0;
+  color: var(--ink);
+  background: transparent;
+  cursor: pointer;
+  text-align: left;
+}
+
+.lease-select:hover,
+.lease-select[aria-pressed="true"] {
+  color: var(--sage-900);
+  background: var(--sage-100);
+}
+
+.lease-select[aria-pressed="true"] {
+  box-shadow: inset 3px 0 var(--amber-500);
+  font-weight: 600;
+}
+
+.lease-select span,
+.lease-select small {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.lease-select small {
+  flex: 0 0 auto;
+  color: var(--muted);
+}
+
+.revoked-lease-history {
+  margin-top: 24px;
+  border-top: 1px solid var(--line);
+}
+
+.revoked-lease-history summary {
+  padding: 14px 0;
+  color: var(--muted);
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.revoked-lease-history[open] summary {
+  color: var(--sage-900);
+}
+
+.lease-detail {
+  padding-top: 8px;
+}
+
+.lease-create-form select {
+  width: 100%;
+  min-height: 46px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  color: var(--ink);
+  background: var(--paper);
+}
+
+.lease-policy-summary {
+  display: grid;
+  gap: 12px;
+  padding: 16px 0;
+  border-top: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+}
+
+.lease-policy-summary p,
+.lease-duration-help {
+  margin: 0;
+  color: var(--muted);
+}
+
+.lease-dialog .lease-create-form {
+  gap: 16px;
+}
+
+.lease-availability-message + .lease-availability-message {
+  margin-top: 8px;
+}
+
 .form-status {
   min-height: 1.5em;
   margin: 0;
@@ -545,7 +880,30 @@ input:focus-visible {
 @media (max-width: 720px) {
   .device-workspace {
     grid-template-columns: 1fr;
-    gap: 32px;
+    gap: 28px;
+  }
+
+  .lease-workspace {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 28px;
+  }
+
+  .device-detail {
+    padding: 24px 0 0;
+    border-top: 1px solid var(--line);
+    border-left: 0;
+  }
+
+  .device-dialog {
+    padding: 22px;
+  }
+
+  .profile-policy {
+    grid-template-columns: 1fr;
+  }
+
+  .profile-policy-networks {
+    grid-column: auto;
   }
 }
 

@@ -4,44 +4,325 @@
     <p>{{ description }}</p>
 </section>
 {% if section == "devices" and g.get('current_user') %}
-<section class="device-workspace" aria-labelledby="page-title">
-    <form class="login-panel device-create-form" data-device-form data-endpoint="/api/v1/users/me/devices" hx-boost="false"
-        data-create-error="{{ text.device_error }}" data-success-text="{{ text.device_success }}"
-        data-keygen-error="{{ text.keygen_error }}" data-copied-text="{{ text.copied_private_key }}"
-        data-copy-error="{{ text.copy_private_key_error }}">
-        <label class="form-field" for="device-name">
-            {{ text.device_name }}
-            <input id="device-name" name="name" type="text" maxlength="255" required autocomplete="off">
-        </label>
-        <label class="form-field" for="device-public-key">
-            {{ text.public_key }}
-            <input id="device-public-key" name="public_key" type="text" maxlength="512" required autocomplete="off" spellcheck="false">
-        </label>
-        <button class="text-action" type="button" data-generate-keys>{{ text.generate_keys }}</button>
-        <div class="private-key-panel" data-private-key-panel hidden>
-            <label class="form-field" for="device-private-key">
-                {{ text.private_key }}
-                <input id="device-private-key" type="text" readonly autocomplete="off" spellcheck="false">
-            </label>
-            <p>{{ text.private_key_notice }}</p>
-            <button class="text-action" type="button" data-copy-private-key>{{ text.copy_private_key }}</button>
-        </div>
-        <button class="primary-action" type="submit">{{ text.create_device }}</button>
-        <output class="form-status" data-device-status aria-live="polite"></output>
-    </form>
+<section class="device-workspace" data-device-workspace
+    data-device-endpoint="/api/v1/users/me/devices"
+    data-delete-error="{{ text.delete_device_error }}"
+    data-delete-success="{{ text.delete_device_success }}"
+    aria-labelledby="page-title">
     <section class="device-inventory" aria-label="{{ text.devices }}">
-        <h2>{{ text.devices }}</h2>
-        {% if devices %}
-        <ul class="device-list" data-device-list>
+        <header class="device-inventory-heading">
+            <h2>{{ text.devices }}</h2>
+            <button class="primary-action" type="button" data-open-device-dialog aria-haspopup="dialog">
+                {{ text.add_device }}
+            </button>
+        </header>
+        <ul class="device-list" data-device-list {% if not devices %}hidden{% endif %}>
             {% for device in devices %}
-            <li><span>{{ device.name }}</span><small>#{{ device.id }}</small></li>
+            <li data-device-item>
+                <button class="device-select" type="button" data-device-select
+                    data-device-id="{{ device.id }}" data-name="{{ device.name }}"
+                    data-public-key="{{ device.public_key }}"
+                    data-created-at="{{ device.created_at.isoformat() }}{{ 'Z' if device.created_at.tzinfo is none else '' }}"
+                    aria-pressed="{{ 'true' if loop.first else 'false' }}">
+                    <span>{{ device.name }}</span>
+                    <small>#{{ device.id }}</small>
+                </button>
+            </li>
             {% endfor %}
         </ul>
-        {% else %}
-        <p class="device-empty" data-device-empty>{{ text.empty_devices }}</p>
-        <ul class="device-list" data-device-list hidden></ul>
-        {% endif %}
+        <p class="device-empty" data-device-empty {% if devices %}hidden{% endif %}>{{ text.empty_devices }}</p>
     </section>
+    <section class="device-detail" data-device-detail aria-labelledby="device-detail-title"
+        {% if not devices %}hidden{% endif %}>
+        <h2 id="device-detail-title" data-device-detail-name>{% if devices %}{{ devices[0].name }}{% else %}{{ text.device_details }}{% endif %}</h2>
+        <dl class="device-detail-list">
+            <div>
+                <dt>{{ text.device_identifier }}</dt>
+                <dd data-device-detail-id>{% if devices %}#{{ devices[0].id }}{% endif %}</dd>
+            </div>
+            <div>
+                <dt>{{ text.device_created }}</dt>
+                <dd><time data-device-detail-created>{% if devices %}{{ devices[0].created_at.isoformat() }}{% endif %}</time></dd>
+            </div>
+            <div>
+                <dt>{{ text.public_key }}</dt>
+                <dd><code data-device-detail-key>{% if devices %}{{ devices[0].public_key }}{% endif %}</code></dd>
+            </div>
+        </dl>
+        <button class="danger-action" type="button" data-delete-device>{{ text.delete_device }}</button>
+    </section>
+    <dialog class="device-dialog" data-device-dialog aria-labelledby="device-dialog-title">
+        <header class="device-dialog-heading">
+            <h2 id="device-dialog-title">{{ text.add_device }}</h2>
+            <button class="text-action" type="button" data-close-device-dialog>{{ text.close }}</button>
+        </header>
+        <form class="login-panel device-create-form" data-device-form data-endpoint="/api/v1/users/me/devices" hx-boost="false"
+            data-create-error="{{ text.device_error }}" data-success-text="{{ text.device_success }}"
+            data-keygen-error="{{ text.keygen_error }}" data-copied-text="{{ text.copied_private_key }}"
+            data-copy-error="{{ text.copy_private_key_error }}">
+            <label class="form-field" for="device-name">
+                {{ text.device_name }}
+                <input id="device-name" name="name" type="text" maxlength="255" required autocomplete="off">
+            </label>
+            <label class="form-field" for="device-public-key">
+                {{ text.public_key }}
+                <input id="device-public-key" name="public_key" type="text" maxlength="512" required autocomplete="off" spellcheck="false">
+            </label>
+            <button class="text-action" type="button" data-generate-keys>{{ text.generate_keys }}</button>
+            <div class="private-key-panel" data-private-key-panel hidden>
+                <label class="form-field" for="device-private-key">
+                    {{ text.private_key }}
+                    <input id="device-private-key" type="text" readonly autocomplete="off" spellcheck="false">
+                </label>
+                <p>{{ text.private_key_notice }}</p>
+                <button class="text-action" type="button" data-copy-private-key>{{ text.copy_private_key }}</button>
+            </div>
+            <button class="primary-action" type="submit">{{ text.create_device }}</button>
+            <output class="form-status" data-device-status aria-live="polite"></output>
+        </form>
+    </dialog>
+    <dialog class="device-dialog device-delete-dialog" data-delete-dialog
+        aria-labelledby="device-delete-title" aria-describedby="device-delete-warning">
+        <h2 id="device-delete-title">{{ text.delete_device_title }}</h2>
+        <p id="device-delete-warning">{{ text.delete_device_notice }}</p>
+        <p class="device-delete-target" data-delete-target></p>
+        <output class="form-status" data-delete-status aria-live="polite"></output>
+        <div class="device-dialog-actions">
+            <button class="text-action" type="button" data-cancel-delete>{{ text.cancel }}</button>
+            <button class="danger-action" type="button" data-confirm-delete>{{ text.confirm_delete_device }}</button>
+        </div>
+    </dialog>
+</section>
+{% elif section == "leases" and g.get('current_user') %}
+<section class="lease-workspace" data-lease-workspace
+    data-create-endpoint="/api/v1/users/me/leases"
+    data-revoke-endpoint="/api/v1/users/me/leases"
+    data-create-error="{{ text.lease_error }}"
+    data-create-success="{{ text.lease_success }}"
+    data-revoke-error="{{ text.lease_revoke_error }}"
+    data-revoke-success="{{ text.lease_revoke_success }}"
+    data-active-label="{{ text.active_status }}"
+    data-expired-label="{{ text.expired_status }}"
+    data-revoked-label="{{ text.revoked_status }}"
+    data-default-label="{{ text.lease_default }}"
+    data-maximum-label="{{ text.lease_maximum }}"
+    data-networks-label="{{ text.lease_networks }}"
+    aria-labelledby="page-title">
+    <section class="lease-inventory" aria-label="{{ text.leases }}">
+        <header class="device-inventory-heading">
+            <h2>{{ text.leases }}</h2>
+            <button class="primary-action" type="button" data-open-lease-dialog
+                aria-haspopup="dialog" {% if not devices or not lease_profiles %}disabled{% endif %}>
+                {{ text.add_lease }}
+            </button>
+        </header>
+        {% if not devices %}
+        <p class="device-empty lease-availability-message">{{ text.empty_lease_devices }}</p>
+        {% endif %}
+        {% if not lease_profiles %}
+        <p class="device-empty lease-availability-message">{{ text.empty_lease_profiles }}</p>
+        {% endif %}
+        <ul class="lease-list" data-lease-list {% if not current_leases %}hidden{% endif %}>
+            {% for item in current_leases %}
+            {% set lease = item["lease"] %}
+            {% set device = item["device"] %}
+            {% set profile = item["profile"] %}
+            {% set status = item["status"] %}
+            <li data-lease-item>
+                <button class="lease-select" type="button" data-lease-select
+                    data-lease-id="{{ lease.id }}" data-status="{{ status }}"
+                    data-status-label="{{ text.active_status if status == 'active' else text.expired_status }}"
+                    data-device-id="{{ device.id }}" data-device-name="{{ device.name }}"
+                    data-profile-id="{{ profile.id }}" data-profile-name="{{ profile.name }}"
+                    data-created-at="{{ lease.created_at.isoformat() }}{{ 'Z' if lease.created_at.tzinfo is none else '' }}"
+                    data-ended-at="{{ lease.ended_at.isoformat() }}{{ 'Z' if lease.ended_at.tzinfo is none else '' }}"
+                    data-revoked-at=""
+                    aria-pressed="{{ 'true' if loop.first else 'false' }}">
+                    <span>{{ device.name }} · {{ profile.name }}</span>
+                    <small>#{{ lease.id }} · {{ text.active_status if status == 'active' else text.expired_status }}</small>
+                </button>
+            </li>
+            {% endfor %}
+        </ul>
+        <p class="device-empty" data-lease-empty {% if current_leases %}hidden{% endif %}>
+            {{ text.empty_current_leases if revoked_leases else text.empty_leases }}
+        </p>
+        <details class="revoked-lease-history" data-revoked-section
+            {% if not revoked_leases %}hidden{% endif %}>
+            <summary>
+                {{ text.revoked_leases }} (<span data-revoked-count>{{ revoked_leases|length }}</span>)
+            </summary>
+            <ul class="lease-list" data-revoked-list>
+                {% for item in revoked_leases %}
+                {% set lease = item["lease"] %}
+                {% set device = item["device"] %}
+                {% set profile = item["profile"] %}
+                <li data-lease-item>
+                    <button class="lease-select" type="button" data-lease-select
+                        data-lease-id="{{ lease.id }}" data-status="revoked"
+                        data-status-label="{{ text.revoked_status }}"
+                        data-device-id="{{ device.id }}" data-device-name="{{ device.name }}"
+                        data-profile-id="{{ profile.id }}" data-profile-name="{{ profile.name }}"
+                        data-created-at="{{ lease.created_at.isoformat() }}{{ 'Z' if lease.created_at.tzinfo is none else '' }}"
+                        data-ended-at="{{ lease.ended_at.isoformat() }}{{ 'Z' if lease.ended_at.tzinfo is none else '' }}"
+                        data-revoked-at="{{ lease.revoked_at.isoformat() if lease.revoked_at else '' }}{{ 'Z' if lease.revoked_at and lease.revoked_at.tzinfo is none else '' }}"
+                        aria-pressed="false">
+                        <span>{{ device.name }} · {{ profile.name }}</span>
+                        <small>#{{ lease.id }} · {{ text.revoked_status }}</small>
+                    </button>
+                </li>
+                {% endfor %}
+            </ul>
+        </details>
+    </section>
+    {% set selected = current_leases[0] if current_leases else none %}
+    <section class="device-detail lease-detail" data-lease-detail
+        aria-labelledby="lease-detail-title" {% if not selected %}hidden{% endif %}>
+        <h2 id="lease-detail-title" data-lease-detail-heading>
+            {% if selected %}{{ selected["profile"].name }}{% else %}{{ text.lease_details }}{% endif %}
+        </h2>
+        <dl class="device-detail-list">
+            <div>
+                <dt>{{ text.lease_identifier }}</dt>
+                <dd data-lease-detail-id>{% if selected %}#{{ selected["lease"].id }}{% endif %}</dd>
+            </div>
+            <div>
+                <dt>{{ text.lease_device }}</dt>
+                <dd data-lease-detail-device>
+                    {% if selected %}{{ selected["device"].name }} (#{{ selected["device"].id }}){% endif %}
+                </dd>
+            </div>
+            <div>
+                <dt>{{ text.lease_profile }}</dt>
+                <dd data-lease-detail-profile>
+                    {% if selected %}{{ selected["profile"].name }} (#{{ selected["profile"].id }}){% endif %}
+                </dd>
+            </div>
+            <div>
+                <dt>{{ text.lease_status }}</dt>
+                <dd data-lease-detail-status>
+                    {% if selected %}{{ text.active_status if selected["status"] == 'active' else text.expired_status }}{% endif %}
+                </dd>
+            </div>
+            <div>
+                <dt>{{ text.lease_created }}</dt>
+                <dd><time data-lease-detail-created>{% if selected %}{{ selected["lease"].created_at.isoformat() }}{% endif %}</time></dd>
+            </div>
+            <div>
+                <dt>{{ text.lease_ends }}</dt>
+                <dd><time data-lease-detail-ended>{% if selected %}{{ selected["lease"].ended_at.isoformat() }}{% endif %}</time></dd>
+            </div>
+            <div data-lease-revoked-details {% if not selected or selected["status"] != 'revoked' %}hidden{% endif %}>
+                <dt>{{ text.lease_revoked_at }}</dt>
+                <dd><time data-lease-detail-revoked>{% if selected and selected["lease"].revoked_at %}{{ selected["lease"].revoked_at.isoformat() }}{% endif %}</time></dd>
+            </div>
+        </dl>
+        <button class="danger-action" type="button" data-open-revoke-dialog
+            {% if not selected or selected["status"] != 'active' %}hidden{% endif %}>
+            {{ text.revoke_lease }}
+        </button>
+    </section>
+    <dialog class="device-dialog lease-dialog" data-lease-dialog
+        aria-labelledby="lease-dialog-title">
+        <header class="device-dialog-heading">
+            <h2 id="lease-dialog-title">{{ text.create_lease_title }}</h2>
+            <button class="text-action" type="button" data-close-lease-dialog>{{ text.close }}</button>
+        </header>
+        <form class="login-panel lease-create-form" data-lease-form hx-boost="false">
+            <label class="form-field" for="lease-device-id">
+                {{ text.lease_device }}
+                <select id="lease-device-id" name="device_id" required>
+                    {% for device in devices %}
+                    <option value="{{ device.id }}">{{ device.name }} (#{{ device.id }})</option>
+                    {% endfor %}
+                </select>
+            </label>
+            <label class="form-field" for="lease-profile-id">
+                {{ text.lease_profile }}
+                <select id="lease-profile-id" name="profile_id" required>
+                    {% for item in lease_profiles %}
+                    {% set profile = item["profile"] %}
+                    {% set policy = item["policy"] %}
+                    <option value="{{ profile.id }}"
+                        data-default-duration="{{ policy.default_duration }}"
+                        data-maximum-duration="{{ policy.maximum_duration }}"
+                        data-networks="{{ policy.networks|map('string')|list|tojson|forceescape }}">
+                        {{ profile.name }} (#{{ profile.id }})
+                    </option>
+                    {% endfor %}
+                </select>
+            </label>
+            <div class="lease-policy-summary" data-lease-policy-summary aria-live="polite">
+                <p data-lease-policy-durations></p>
+                <ul class="profile-networks" data-lease-policy-networks></ul>
+            </div>
+            <label class="form-field" for="lease-duration">
+                {{ text.duration_optional }}
+                <input id="lease-duration" name="duration" type="text" maxlength="255"
+                    autocomplete="off" data-lease-duration>
+            </label>
+            <p class="lease-duration-help">{{ text.duration_help }}</p>
+            <button class="primary-action" type="submit">{{ text.create_lease }}</button>
+            <output class="form-status" data-lease-status aria-live="polite"></output>
+        </form>
+    </dialog>
+    <dialog class="device-dialog device-delete-dialog" data-revoke-dialog
+        aria-labelledby="revoke-dialog-title" aria-describedby="revoke-dialog-warning">
+        <h2 id="revoke-dialog-title">{{ text.revoke_lease_title }}</h2>
+        <p id="revoke-dialog-warning">{{ text.revoke_lease_notice }}</p>
+        <p class="device-delete-target" data-revoke-target></p>
+        <output class="form-status" data-revoke-status aria-live="polite"></output>
+        <div class="device-dialog-actions">
+            <button class="text-action" type="button" data-cancel-revoke>{{ text.cancel }}</button>
+            <button class="danger-action" type="button" data-confirm-revoke>
+                {{ text.confirm_revoke_lease }}
+            </button>
+        </div>
+    </dialog>
+</section>
+{% elif section == "profiles" and g.get('current_user') %}
+<section class="profile-inventory" aria-labelledby="profile-list-title">
+    <h2 id="profile-list-title">{{ text.profiles }}</h2>
+    {% if profiles %}
+    <ul class="profile-list">
+        {% for item in profiles %}
+        {% set profile = item["profile"] %}
+        {% set policy = item["policy"] %}
+        <li>
+            <div class="profile-heading">
+                <h3>{{ profile.name }}</h3>
+                <span>{{ text.profile_id }} #{{ profile.id }}</span>
+            </div>
+            {% if policy %}
+            <dl class="profile-policy">
+                <div>
+                    <dt>{{ text.default_duration }}</dt>
+                    <dd>{{ policy.default_duration }}</dd>
+                </div>
+                <div>
+                    <dt>{{ text.maximum_duration }}</dt>
+                    <dd>{{ policy.maximum_duration }}</dd>
+                </div>
+                <div class="profile-policy-networks">
+                    <dt>{{ text.allowed_networks }}</dt>
+                    <dd>
+                        <ul class="profile-networks">
+                            {% for network in policy.networks %}
+                            <li><code>{{ network }}</code></li>
+                            {% endfor %}
+                        </ul>
+                    </dd>
+                </div>
+            </dl>
+            {% else %}
+            <p class="device-empty">{{ text.policy_unavailable }}</p>
+            {% endif %}
+        </li>
+        {% endfor %}
+    </ul>
+    {% else %}
+    <p class="device-empty">{{ text.empty_profiles }}</p>
+    {% endif %}
 </section>
 {% else %}
 <section class="pending-panel" aria-label="{{ text.not_available }}">

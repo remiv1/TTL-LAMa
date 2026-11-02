@@ -22,6 +22,7 @@ from pydantic import ValidationError
 from sqlalchemy import select
 from sqlalchemy.exc import SQLAlchemyError
 
+from api.database import get_session
 from api.common.db_objects.sessions import Session as UserSession
 from api.common.other_objects import PasswordChange
 from api.common.repositories import ConflictError, NotFoundError
@@ -95,7 +96,7 @@ def authenticate():
 def get_current_user() -> Response:
     """Return the authenticated user's identity and active session expirations."""
     user = get_authenticated_user()
-    database_session = current_app.extensions["database_config"].session()
+    database_session = get_session()
     expirations = database_session.scalars(
         select(UserSession.expires_at).where(
             UserSession.user_id == user.id,
@@ -142,7 +143,7 @@ def _format_timestamp(value: datetime | None) -> str | None:
 def get_current_user_overview() -> Response:
     """Return the authenticated user's identity and owned access resources."""
     user = get_authenticated_user()
-    database_session = current_app.extensions["database_config"].session()
+    database_session = get_session()
     user_id = str(user.id)
 
     devices = DeviceRepository(database_session).find(user=user_id)

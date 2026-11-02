@@ -7,7 +7,8 @@ from flask import Response, jsonify
 from sqlalchemy import select
 from sqlalchemy.exc import SQLAlchemyError
 
-from api.bootstrap import create_app, get_sessions
+from api.bootstrap import create_app
+from api.database import get_session
 
 app = create_app()
 
@@ -18,7 +19,7 @@ def health() -> tuple[Response, int]:
     :returns: A JSON response and the corresponding HTTP status.
     :rtype: tuple[Response, int]
     """
-    session = get_sessions()
+    session = get_session()
     stmt = select(1)
     try:
         status = session.execute(stmt).scalar() is not None
