@@ -254,7 +254,7 @@ def create_app(
     :returns: The Flask application ready to serve requests.
     :rtype: Flask
     """
-    flask_settings = flask_settings or FlaskSettings()
+    flask_settings = (flask_settings or FlaskSettings()).with_resolved_authentication_secrets()
     database_settings = database_settings or DatabaseSettings()
     app = Flask(__name__)
     app.config.from_mapping(flask_settings.model_dump())

@@ -16,7 +16,16 @@ from __future__ import annotations
 
 from typing import cast
 
-from flask import Blueprint, Response, abort, current_app, redirect, request, url_for
+from flask import (
+    Blueprint,
+    Response,
+    abort,
+    current_app,
+    jsonify,
+    redirect,
+    request,
+    url_for,
+)
 from werkzeug import Response as WerkzeugResponse
 
 from auth.controller import AuthController
@@ -31,12 +40,17 @@ def login() -> WerkzeugResponse | tuple[Response, int]:
     """Render the appropriate login page."""
     config = cast(dict[str, object], current_app.config)
     if config.get("AUTH_MODE") == "internal":
+        if "cli_callback_url" in request.args or "cli_state" in request.args:
+            return jsonify(error="OIDC authentication is not enabled"), 501
         return redirect(url_for("web.login"))
     try:
         controller = AuthController(get_manager())
     except RuntimeError:
         abort(501, description=_NON_MANAGED_ERROR)
-    return controller.begin_oidc_login()
+    return controller.begin_oidc_login(
+        request.args.get("cli_callback_url"),
+        request.args.get("cli_state"),
+    )
 
 @auth_bp.post("/login")
 def internal_login() -> WerkzeugResponse | tuple[Response, int]:
@@ -60,7 +74,9 @@ def internal_login() -> WerkzeugResponse | tuple[Response, int]:
     return response
 
 @auth_bp.get("/callback")
-def call_back() -> WerkzeugResponse:
+def call_back() -> WerkzeugResponse | tuple[WerkzeugResponse, int]:
     """Handle the callback from the OIDC provider."""
     controller = AuthController(get_manager())
+    if request.args.get("error"):
+        return controller.oidc_error_callback()
     return controller.oidc_callback()

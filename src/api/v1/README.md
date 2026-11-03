@@ -45,11 +45,13 @@ The configuration endpoints are a separate API v1 Blueprint at
 cookie-CSRF rules described above. `GET /api/v1/global-config` returns the raw
 application YAML document with direct secret values masked. `POST
 /api/v1/global-config/validate` accepts a candidate document and returns
-`valid` plus `errors` without writing it. `POST /api/v1/global-config/apply`
-validates and atomically writes the candidate to the server's configured YAML
-path (`TTL_LAMA_CONFIG_FILE`, default `/etc/ttl-lama/config.yml`). Its response
-sets `restart_required` and includes a warning when the file is not covered by
-a volume mount.
+`valid` plus `errors` without writing it. `POST
+/api/v1/global-config/compare` accepts a valid candidate and returns only the
+paths of direct secrets that match the stored YAML; secret values are never
+returned. `POST /api/v1/global-config/apply` validates and atomically writes the
+candidate to the server's configured YAML path (`TTL_LAMA_CONFIG_FILE`, default
+`/etc/ttl-lama/config.yml`). Its response sets `restart_required` and includes
+a warning when the file is not covered by a volume mount.
 
 The endpoints manage application settings only: profile definitions,
 `access-profiles.yml`, and profile policies in the database are out of scope.
@@ -59,6 +61,32 @@ override YAML values, and changes take effect only after an external server
 restart.
 
 ### Self-service user API
+
+### OIDC CLI authentication
+
+The CLI authentication endpoints are public and do not use browser cookies. They
+are exempt from cookie CSRF checks because each request is authorized by a
+short-lived one-time ticket or the provider's device code. All responses use
+`Cache-Control: no-store`.
+
+| Method | Path | Operation |
+| --- | --- | --- |
+| POST | `/auth/oidc/exchange` | Exchange a one-time CLI ticket for a Bearer session |
+| POST | `/auth/oidc/device` | Start Device Authorization with the configured provider |
+| POST | `/auth/oidc/device/poll` | Poll approval and return a Bearer only on success |
+
+The browser callback redirects only to a validated `http://127.0.0.1:<port>/callback`
+URL and carries an opaque ticket, never a session token. The ticket is stored
+hashed, expires after two minutes, and can be exchanged only once. The device
+start response contains the provider's device code, user code, verification URL,
+expiration, and polling interval. The CLI keeps the device code in memory and
+does not display it; the server retains the OIDC client secret and relays all
+provider requests. Pending, slow-down, denied, and expired states do not create
+a TTL-LAMa session.
+
+The configured provider must publish `device_authorization_endpoint` and allow
+the `urn:ietf:params:oauth:grant-type:device_code` grant for the client to use
+the distant flow.
 
 All endpoints below are relative to `/api/v1`. They require an authenticated,
 enabled user but do not require administrator privileges. Cookie-authenticated
@@ -202,8 +230,7 @@ ttlama
  ├── auth → **Authentification** → **_Qui suis-je ?_**
  │    ├── login
  │    │     ├── internal --user <username>
- │    │     ├── external --user <username>
- │    │     └── oidc --user <username>
+ │    │     └── oidc [--distant]
  │    │
  │    ├── logout
  │    └── status

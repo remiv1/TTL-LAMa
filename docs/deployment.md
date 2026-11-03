@@ -100,6 +100,21 @@ access_profiles:
   file: /etc/ttl-lama/access-profiles.yml
 ```
 
+### OIDC CLI Sign-In
+
+For `ttlama auth login oidc`, register the server's configured `/auth/callback`
+redirect URI with the identity provider. The default CLI flow opens the provider
+in a browser and returns through a temporary callback bound to `127.0.0.1`; the
+provider does not need to register a per-user or per-invocation loopback URI.
+The server issues a two-minute, one-time ticket and creates the TTL-LAMa session
+only when the CLI exchanges it.
+
+The `--distant` flow additionally requires the provider discovery document to
+publish `device_authorization_endpoint` and the client to allow
+`urn:ietf:params:oauth:grant-type:device_code`. The OIDC client secret remains
+on the server for both flows. Device tickets are short-lived and stored in the
+configured database; normal database initialization creates their table.
+
 ### Argon2id Parameters
 
 `auth.password_hasher` configures the Argon2id hasher used by internal authentication. The following values are starting points, not performance guarantees or enforced limits. Benchmark them on the deployment hardware under its expected load.

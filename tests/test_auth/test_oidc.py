@@ -1,5 +1,6 @@
 """Tests for the OIDC authentication backend."""
 
+from collections.abc import Mapping
 from typing import cast
 import pytest
 
@@ -23,6 +24,11 @@ class FakeOIDCClient:   # pylint: disable=R0903
         )
         self.redirect_uri: str | None = None
         self.redirect_response = Response(status=302)
+        self.metadata: dict[str, object] = {
+            "device_authorization_endpoint": "https://idp.example/device",
+            "token_endpoint": "https://idp.example/token",
+        }
+        self.device_user_info: Mapping[str, object] = {"sub": "known-subject"}
 
     def authorize_access_token(self) -> dict[str, object]:
         """Simulate the retrieval of an access token with user info."""
@@ -32,6 +38,35 @@ class FakeOIDCClient:   # pylint: disable=R0903
         """Simulate the authorization redirect."""
         self.redirect_uri = redirect_uri
         return self.redirect_response
+
+    def load_server_metadata(self) -> dict[str, object]:
+        """Return fake provider metadata for Device Authorization tests."""
+        return self.metadata
+
+    def userinfo(self, **_kwargs: object) -> Mapping[str, object]:
+        """Return fake user information for a validated provider token."""
+        return self.device_user_info
+
+    def parse_id_token(
+        self,
+        _token: dict[str, object],
+        nonce: str | None,
+    ) -> Mapping[str, object] | None:
+        """Return claims after simulating Authlib ID token validation."""
+        assert nonce is None
+        return self.device_user_info
+
+
+class FakeProviderResponse:  # pylint: disable=R0903
+    """Minimal HTTP response for OIDC provider endpoint tests."""
+
+    def __init__(self, status_code: int, payload: dict[str, object]) -> None:
+        self.status_code = status_code
+        self.payload = payload
+
+    def json(self) -> dict[str, object]:
+        """Return the configured JSON payload."""
+        return self.payload
 
 
 class FakeUserService:   # pylint: disable=R0903
@@ -167,3 +202,125 @@ def test_begin_login_redirects_to_oidc_provider() -> None:
 
     assert response is oidc_client.redirect_response
     assert oidc_client.redirect_uri == redirect_uri
+
+
+def test_begin_device_authorization_returns_only_provider_device_fields(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Device authorization start validates the provider's public response fields."""
+    from auth.backends import oidc as oidc_module # pylint: disable=C0415
+
+    response = FakeProviderResponse(
+        200,
+        {
+            "device_code": "private-device-code",
+            "user_code": "ABCD-EFGH",
+            "verification_uri": "https://idp.example/device",
+            "verification_uri_complete": "https://idp.example/device?user_code=ABCD-EFGH",
+            "expires_in": 300,
+            "interval": 5,
+        },
+    )
+    def provider_post(*_args: object, **_kwargs: object) -> FakeProviderResponse:
+        return response
+
+    monkeypatch.setattr(oidc_module, "post", provider_post)
+    backend = OIDCAuthBackend(
+        cast(UserService, FakeUserService(None)),
+        OIDCParams(
+            oidc_client=cast(FlaskOAuth2App, FakeOIDCClient()),
+            issuer="https://idp.example",
+            redirect_uri="http://localhost/auth/callback",
+        ),
+    )
+
+    result = backend.begin_device_authorization("cli-client", "client-secret")
+
+    assert result["device_code"] == "private-device-code"
+    assert result["user_code"] == "ABCD-EFGH"
+    assert result["expires_in"] == 300
+    assert result["interval"] == 5
+
+
+@pytest.mark.parametrize(
+    ("provider_error", "expected_status"),
+    [
+        ("authorization_pending", "pending"),
+        ("slow_down", "slow_down"),
+        ("access_denied", "denied"),
+        ("expired_token", "expired"),
+    ],
+)
+def test_poll_device_authorization_maps_provider_status(
+    monkeypatch: pytest.MonkeyPatch,
+    provider_error: str,
+    expected_status: str,
+) -> None:
+    """Standard device grant errors become non-sensitive polling states."""
+    from auth.backends import oidc as oidc_module # pylint: disable=C0415
+
+    def provider_post(*_args: object, **_kwargs: object) -> FakeProviderResponse:
+        return FakeProviderResponse(400, {"error": provider_error})
+
+    monkeypatch.setattr(oidc_module, "post", provider_post)
+    backend = OIDCAuthBackend(
+        cast(UserService, FakeUserService(None)),
+        OIDCParams(
+            oidc_client=cast(FlaskOAuth2App, FakeOIDCClient()),
+            issuer="https://idp.example",
+            redirect_uri="http://localhost/auth/callback",
+        ),
+    )
+
+    assert backend.poll_device_authorization(
+        "private-device-code",
+        "cli-client",
+        "client-secret",
+    ) == {"status": expected_status}
+
+
+def test_poll_device_authorization_resolves_linked_user(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An approved access token is resolved through the configured userinfo endpoint."""
+    from auth.backends import oidc as oidc_module # pylint: disable=C0415
+
+    local_user = User(
+        id="local-user-id",
+        username="alice",
+        email="alice@example.com",
+        enabled=True,
+        is_admin=False,
+    )
+    user_service = FakeUserService(local_user)
+    oidc_client = FakeOIDCClient()
+    oidc_module_response = FakeProviderResponse(200, {"access_token": "provider-token"})
+    def provider_post(*_args: object, **_kwargs: object) -> FakeProviderResponse:
+        return oidc_module_response
+
+    monkeypatch.setattr(oidc_module, "post", provider_post)
+    backend = OIDCAuthBackend(
+        cast(UserService, user_service),
+        OIDCParams(
+            oidc_client=cast(FlaskOAuth2App, oidc_client),
+            issuer="https://idp.example",
+            redirect_uri="http://localhost/auth/callback",
+        ),
+    )
+
+    result = backend.poll_device_authorization(
+        "private-device-code",
+        "cli-client",
+        "client-secret",
+    )
+
+    assert result == {
+        "status": "complete",
+        "user": UnifiedUser(
+            id="local-user-id",
+            username="alice",
+            is_admin=False,
+            email="alice@example.com",
+        ),
+    }
+    assert user_service.lookup == ("https://idp.example", "known-subject")

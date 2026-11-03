@@ -10,9 +10,11 @@
 from __future__ import annotations
 
 from .session import SessionService
+from .cli_login_ticket import CliLoginTicketService
 from .user import UserService
 
 __all__ = [
     "SessionService",
+    "CliLoginTicketService",
     "UserService",
 ]

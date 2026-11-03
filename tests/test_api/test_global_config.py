@@ -116,6 +116,100 @@ def test_validate_global_config_is_read_only_and_rejects_redacted_values(
     assert config_path.read_text(encoding="utf-8") == original_contents
 
 
+def test_compare_global_config_returns_only_unchanged_secret_paths(
+    domain: object,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Comparison identifies equal secrets without returning their values."""
+    config_path = tmp_path / "config.yml"
+    current = _valid_configuration()
+    _write_config(config_path, current)
+    monkeypatch.setenv("TTL_LAMA_CONFIG_FILE", str(config_path))
+    candidate = _valid_configuration()
+    candidate_auth = cast(dict[str, object], candidate["auth"])
+    candidate_admin = cast(dict[str, object], candidate_auth["admin"])
+    candidate_admin["password"] = "changed-password"
+
+    response = getattr(domain, "client").post(
+        "/api/v1/global-config/compare",
+        headers=_admin_headers(domain),
+        json=candidate,
+    )
+
+    assert response.status_code == 200
+    assert response.get_json() == {"unchanged_secrets": ["app.secret_key"]}
+    response_text = response.get_data(as_text=True)
+    assert "test-secret-key-with-at-least-thirty-two-characters" not in response_text
+    assert "valid-password" not in response_text
+    assert "changed-password" not in response_text
+
+
+def test_compare_global_config_recognizes_matching_passwords(
+    domain: object,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Equal direct passwords are reported by path only."""
+    config_path = tmp_path / "config.yml"
+    _write_config(config_path, _valid_configuration())
+    monkeypatch.setenv("TTL_LAMA_CONFIG_FILE", str(config_path))
+
+    response = getattr(domain, "client").post(
+        "/api/v1/global-config/compare",
+        headers=_admin_headers(domain),
+        json=_valid_configuration(),
+    )
+
+    assert response.status_code == 200
+    assert response.get_json() == {
+        "unchanged_secrets": ["app.secret_key", "auth.admin.password"],
+    }
+    assert "valid-password" not in response.get_data(as_text=True)
+
+
+def test_validate_global_config_does_not_mutate_resolved_file_secret(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Runtime file secrets do not become false direct values on revalidation."""
+    from api.config.global_config import validate_configuration  # pylint: disable=C0415
+
+    secret_file = tmp_path / "flask-secret"
+    secret_file.write_text(
+        "test-secret-key-with-at-least-thirty-two-characters",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("TTL_LAMA_SECRET_KEY_FILE", str(secret_file))
+    candidate = _valid_configuration()
+    app_config = cast(dict[str, object], candidate["app"])
+    app_config.pop("secret_key")
+    app_config["secret_key_file"] = str(secret_file)
+
+    assert not validate_configuration(candidate)
+
+
+def test_validate_global_config_still_rejects_explicit_secret_and_file(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A candidate cannot configure both direct and file-based secret sources."""
+    from api.config.global_config import validate_configuration  # pylint: disable=C0415
+
+    monkeypatch.delenv("TTL_LAMA_SECRET_KEY_FILE", raising=False)
+    secret_file = tmp_path / "flask-secret"
+    secret_file.write_text(
+        "test-secret-key-with-at-least-thirty-two-characters",
+        encoding="utf-8",
+    )
+    candidate = _valid_configuration()
+    cast(dict[str, object], candidate["app"])["secret_key_file"] = str(secret_file)
+
+    errors = validate_configuration(candidate)
+
+    assert any("Configurer SECRET_KEY ou son fichier, pas les deux" in error for error in errors)
+
+
 def test_global_config_requires_administrator_authentication(app: Flask) -> None:
     """The independent blueprint rejects unauthenticated requests as admin does."""
     client = app.test_client()

@@ -54,3 +54,20 @@ class AuthBackend(ABC):
         :rtype: UnifiedUser
         """
         raise NotImplementedError
+
+    def begin_device_authorization(
+        self,
+        client_id: str,
+        client_secret: str,
+    ) -> dict[str, object]:
+        """Start a remote device authorization flow when supported."""
+        raise NotImplementedError
+
+    def poll_device_authorization(
+        self,
+        device_code: str,
+        client_id: str,
+        client_secret: str,
+    ) -> dict[str, object]:
+        """Poll a remote device authorization flow when supported."""
+        raise NotImplementedError

@@ -2,13 +2,22 @@
 
 from __future__ import annotations
 
+import re
 from typing import cast
+from urllib.parse import urlencode, urlsplit, urlunsplit
 
-from flask import Response, current_app, jsonify, redirect
+from flask import Response, current_app, jsonify, redirect, session
 from werkzeug import Response as WerkzeugResponse
 
 from auth.manager import AuthManager
 from auth.models import AuthenticationResult, UnifiedUser
+from auth.services.cli_login_ticket import (
+    CLI_LOGIN_TICKET_LIFETIME,
+    CliLoginTicketService,
+)
+
+_CLI_LOGIN_CONTEXT = "cli_oidc_login"
+_CLI_STATE_PATTERN = re.compile(r"^[A-Za-z0-9_-]{32,128}$")
 
 
 class AuthController:
@@ -83,8 +92,20 @@ class AuthController:
             path=cast(str, app_config["SESSION_COOKIE_PATH"]),
         )
 
-    def begin_oidc_login(self) -> Response | tuple[Response, int]:
+    def begin_oidc_login(
+        self,
+        callback_url: str | None = None,
+        cli_state: str | None = None,
+    ) -> Response | tuple[Response, int]:
         """Initiate the OIDC login process."""
+        if callback_url is not None or cli_state is not None:
+            if not self._valid_cli_callback(callback_url, cli_state):
+                return jsonify(error="Invalid CLI callback parameters"), 400
+            session[_CLI_LOGIN_CONTEXT] = {
+                "callback_url": callback_url,
+                "state": cli_state,
+            }
+
         try:
             response = self.auth_manager.begin_login()
         except RuntimeError:
@@ -95,8 +116,40 @@ class AuthController:
 
         return response
 
-    def oidc_callback(self) -> WerkzeugResponse:
+    def oidc_callback(self) -> WerkzeugResponse | tuple[WerkzeugResponse, int]:
         """Handle the callback from the OIDC provider."""
+        cli_context = session.pop(_CLI_LOGIN_CONTEXT, None)
+        if isinstance(cli_context, dict):
+            context = cast(dict[str, object], cli_context)
+            callback_url = context.get("callback_url")
+            cli_state = context.get("state")
+            if not self._valid_cli_callback(callback_url, cli_state):
+                return jsonify(error="Invalid CLI login state"), 400
+
+            user = self.auth_manager.backend.complete_login()
+            ticket_service = CliLoginTicketService(
+                self.auth_manager.session_service.db_session,
+                CLI_LOGIN_TICKET_LIFETIME,
+            )
+            ticket = ticket_service.create(user.id)
+            callback_parts = urlsplit(cast(str, callback_url))
+            callback_query = urlencode(
+                {"ticket": ticket, "state": cast(str, cli_state)},
+            )
+            response = redirect(
+                urlunsplit(
+                    (
+                        callback_parts.scheme,
+                        callback_parts.netloc,
+                        callback_parts.path,
+                        callback_query,
+                        "",
+                    )
+                )
+            )
+            response.headers["Cache-Control"] = "no-store"
+            return response
+
         result = self.auth_manager.complete_login()
         app_config = cast(dict[str, object], current_app.config)
         target = cast(str, app_config.get("AUTH_SUCCESS_REDIRECT") or "/")
@@ -105,3 +158,53 @@ class AuthController:
         self._set_auth_cookie(response, result.session_token)
         response.headers["Cache-Control"] = "no-store"
         return response
+
+    def oidc_error_callback(self) -> WerkzeugResponse | tuple[WerkzeugResponse, int]:
+        """Return provider denial to a waiting CLI without exposing provider details."""
+        cli_context = session.pop(_CLI_LOGIN_CONTEXT, None)
+        if not isinstance(cli_context, dict):
+            return jsonify(error="OIDC authentication was not completed"), 400
+        context = cast(dict[str, object], cli_context)
+        callback_url = context.get("callback_url")
+        cli_state = context.get("state")
+        if not self._valid_cli_callback(callback_url, cli_state):
+            return jsonify(error="Invalid CLI login state"), 400
+
+        callback_parts = urlsplit(cast(str, callback_url))
+        response = redirect(
+            urlunsplit(
+                (
+                    callback_parts.scheme,
+                    callback_parts.netloc,
+                    callback_parts.path,
+                    urlencode({"state": cli_state, "error": "access_denied"}),
+                    "",
+                )
+            )
+        )
+        response.headers["Cache-Control"] = "no-store"
+        return response
+
+    @staticmethod
+    def _valid_cli_callback(callback_url: object, cli_state: object) -> bool:
+        """Accept only the CLI's loopback callback and a high-entropy state value."""
+        if not isinstance(callback_url, str) or not isinstance(cli_state, str):
+            return False
+        if not _CLI_STATE_PATTERN.fullmatch(cli_state):
+            return False
+        try:
+            parsed = urlsplit(callback_url)
+            port = parsed.port
+        except ValueError:
+            return False
+        return (
+            parsed.scheme == "http"
+            and parsed.hostname == "127.0.0.1"
+            and port is not None
+            and 1 <= port <= 65535
+            and parsed.path == "/callback"
+            and not parsed.username
+            and not parsed.password
+            and not parsed.query
+            and not parsed.fragment
+        )

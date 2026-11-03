@@ -53,6 +53,10 @@ class AuthManager:
         :rtype: AuthenticationResult
         """
         user = self.backend.complete_login()
+        return self.create_session(user)
+
+    def create_session(self, user: UnifiedUser) -> AuthenticationResult:
+        """Create and record a session for an already authenticated user."""
         session_token = self.session_service.create(user.id)
         self.user_service.record_login(user.id)
 

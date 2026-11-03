@@ -3,16 +3,21 @@
 from datetime import timedelta
 from typing import cast
 from ipaddress import IPv4Network
+from urllib.parse import parse_qs, urlsplit
 
-from flask import Flask
+import pytest
+from flask import Flask, redirect
 from flask.testing import FlaskClient
+from sqlalchemy import select
 
 from api.common.db_objects.devices import Device
 from api.common.db_objects.leases import Lease
+from api.common.db_objects.sessions import Session as UserSession
 from api.common.repositories import DeviceRepository, ProfileRepository, UserRepository
 from api.common.repositories.leases import utcnow
 from api.config.c_profiles import AccessProfile
 from auth.manager import AuthManager
+from auth.models import UnifiedUser
 
 
 def _csrf_headers(client: FlaskClient) -> dict[str, str]:
@@ -100,6 +105,177 @@ def test_api_auth_is_unavailable_in_external_mode(oidc_app: Flask) -> None:
     )
 
     assert response.status_code == 405
+
+
+def test_oidc_cli_callback_issues_one_time_ticket_and_exchange_creates_session(
+    oidc_app: Flask,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The CLI callback redirects with a ticket, not a session Bearer token."""
+    manager = cast(AuthManager, oidc_app.extensions["auth_manager"])
+    user = UserRepository(manager.session_service.db_session).create(
+        username="oidc-cli-user",
+    )
+    manager.session_service.db_session.commit()
+    monkeypatch.setattr(manager.backend, "begin_login", lambda: redirect("https://idp.example"))
+    monkeypatch.setattr(
+        manager.backend,
+        "complete_login",
+        lambda: UnifiedUser.from_db_user(user),
+    )
+    callback_url = "http://127.0.0.1:43210/callback"
+    cli_state = "state-value-that-is-long-enough-123456"
+    client = oidc_app.test_client()
+
+    login = client.get(
+        "/auth/login",
+        query_string={"cli_callback_url": callback_url, "cli_state": cli_state},
+    )
+    assert login.status_code == 302
+    assert login.headers["Location"] == "https://idp.example"
+
+    callback = client.get("/auth/callback?code=provider-code&state=oauth-state")
+    assert callback.status_code == 302
+    assert callback.headers["Cache-Control"] == "no-store"
+    callback_url_parts = urlsplit(callback.headers["Location"])
+    callback_parameters = parse_qs(callback_url_parts.query)
+    assert callback_url_parts.scheme == "http"
+    assert callback_url_parts.netloc == "127.0.0.1:43210"
+    assert callback_url_parts.path == "/callback"
+    assert callback_parameters["state"] == [cli_state]
+    assert "access_token" not in callback_parameters
+    assert "session_token" not in callback_parameters
+
+    ticket = callback_parameters["ticket"][0]
+    token_response = client.post(
+        "/api/v1/auth/oidc/exchange",
+        json={"ticket": ticket},
+    )
+    assert token_response.status_code == 200
+    assert token_response.headers["Cache-Control"] == "no-store"
+    payload = cast(dict[str, object], token_response.get_json())
+    token = cast(str, payload["access_token"])
+    assert manager.get_current_user(token) is not None
+    assert ticket not in token_response.get_data(as_text=True)
+
+    replay = client.post(
+        "/api/v1/auth/oidc/exchange",
+        json={"ticket": ticket},
+    )
+    assert replay.status_code == 401
+    assert manager.get_current_user(token) is not None
+
+
+def test_oidc_cli_login_rejects_non_loopback_callback(oidc_app: Flask) -> None:
+    """The OIDC login route refuses callback URLs outside IPv4 loopback."""
+    response = oidc_app.test_client().get(
+        "/auth/login",
+        query_string={
+            "cli_callback_url": "http://192.0.2.1:1234/callback",
+            "cli_state": "state-value-that-is-long-enough-123456",
+        },
+    )
+
+    assert response.status_code == 400
+
+
+def test_oidc_provider_denial_returns_to_the_waiting_cli(
+    oidc_app: Flask,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A provider denial returns a state-bound error to the loopback listener."""
+    manager = cast(AuthManager, oidc_app.extensions["auth_manager"])
+    monkeypatch.setattr(manager.backend, "begin_login", lambda: redirect("https://idp.example"))
+    callback_url = "http://127.0.0.1:43210/callback"
+    cli_state = "state-value-that-is-long-enough-123456"
+    client = oidc_app.test_client()
+
+    login = client.get(
+        "/auth/login",
+        query_string={"cli_callback_url": callback_url, "cli_state": cli_state},
+    )
+    assert login.status_code == 302
+
+    denial = client.get("/auth/callback?error=access_denied&state=oauth-state")
+    assert denial.status_code == 302
+    assert denial.headers["Cache-Control"] == "no-store"
+    parameters = parse_qs(urlsplit(denial.headers["Location"]).query)
+    assert parameters == {"state": [cli_state], "error": ["access_denied"]}
+    assert "ticket" not in parameters
+
+
+def test_oidc_device_authorization_waits_for_provider_approval(
+    oidc_app: Flask,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Device polling creates a Bearer only after the provider confirms approval."""
+    manager = cast(AuthManager, oidc_app.extensions["auth_manager"])
+    user = UserRepository(manager.session_service.db_session).create(
+        username="oidc-device-user",
+    )
+    manager.session_service.db_session.commit()
+    unified_user = UnifiedUser.from_db_user(user)
+    def begin_device(
+        _client_id: str,
+        _client_secret: str,
+    ) -> dict[str, object]:
+        return {
+            "device_code": "private-device-code",
+            "user_code": "ABCD-EFGH",
+            "verification_uri": "https://idp.example/device",
+            "expires_in": 300,
+            "interval": 5,
+        }
+
+    monkeypatch.setattr(manager.backend, "begin_device_authorization", begin_device)
+    poll_results: list[dict[str, object]] = [
+        {"status": "pending"},
+        {"status": "complete", "user": unified_user},
+    ]
+    poll_index = 0
+
+    def poll_device(
+        _device_code: str,
+        _client_id: str,
+        _client_secret: str,
+    ) -> dict[str, object]:
+        nonlocal poll_index
+        result = poll_results[poll_index]
+        poll_index += 1
+        return result
+
+    monkeypatch.setattr(
+        manager.backend,
+        "poll_device_authorization",
+        poll_device,
+    )
+    client = oidc_app.test_client()
+
+    start = client.post("/api/v1/auth/oidc/device", json={})
+    assert start.status_code == 200
+    assert start.headers["Cache-Control"] == "no-store"
+    assert start.get_json()["device_code"] == "private-device-code"
+
+    pending = client.post(
+        "/api/v1/auth/oidc/device/poll",
+        json={"device_code": "private-device-code"},
+    )
+    assert pending.status_code == 200
+    assert pending.get_json() == {"status": "pending"}
+    assert manager.session_service.db_session.scalar(
+        select(UserSession.id).where(UserSession.user_id == str(user.id))
+    ) is None
+
+    complete = client.post(
+        "/api/v1/auth/oidc/device/poll",
+        json={"device_code": "private-device-code"},
+    )
+    assert complete.status_code == 200
+    assert complete.headers["Cache-Control"] == "no-store"
+    token_payload = cast(dict[str, object], complete.get_json())
+    token = cast(str, token_payload["access_token"])
+    assert token_payload["status"] == "complete"
+    assert manager.get_current_user(token) is not None
 
 
 def test_current_user_lists_expirations_without_exposing_session_hash(app: Flask) -> None:

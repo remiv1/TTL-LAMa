@@ -230,41 +230,55 @@ class Settings(YamlSettingsBase):
         """
         self._validate_cookie_names()
         self._validate_flask_cookie_settings()
-        self._resolve_authentication_secrets()
+        authentication_secrets = self._authentication_secrets()
         is_production = self.model_dump()["FLASK_ENV"].lower() == "production"
         self._validate_environment(is_production)
         if self.AUTH_MODE == "external":
-            self._validate_oidc_configuration(is_production)
+            self._validate_oidc_configuration(
+                is_production,
+                authentication_secrets["OIDC_CLIENT_SECRET"],
+            )
         return self
 
-    def _resolve_authentication_secrets(self) -> None:
-        setattr(
-            self,
-            "SECRET_KEY",
-            self._read_secret("SECRET_KEY", self.SECRET_KEY, self.SECRET_KEY_FILE),
-        )
+    def _authentication_secrets(self) -> dict[str, str]:
+        """Read authentication secrets for validation without changing settings."""
+        secrets = {
+            "SECRET_KEY": self._read_secret(
+                "SECRET_KEY",
+                self.SECRET_KEY,
+                self.SECRET_KEY_FILE,
+            ),
+        }
         if self.AUTH_MODE == "internal":
-            setattr(
-                self,
+            secrets["ADMIN_PASSWORD"] = self._read_secret(
                 "ADMIN_PASSWORD",
-                self._read_secret(
-                    "ADMIN_PASSWORD",
-                    self.ADMIN_PASSWORD,
-                    self.ADMIN_PASSWORD_FILE,
-                ),
+                self.ADMIN_PASSWORD,
+                self.ADMIN_PASSWORD_FILE,
             )
         else:
-            setattr(
-                self,
+            secrets["OIDC_CLIENT_SECRET"] = self._read_secret(
                 "OIDC_CLIENT_SECRET",
-                self._read_secret(
-                    "OIDC_CLIENT_SECRET",
-                    self.OIDC_CLIENT_SECRET,
-                    self.OIDC_CLIENT_SECRET_FILE,
-                ),
+                self.OIDC_CLIENT_SECRET,
+                self.OIDC_CLIENT_SECRET_FILE,
             )
-        if len(self.SECRET_KEY) < 32:
+        if len(secrets["SECRET_KEY"]) < 32:
             raise ValueError("SECRET_KEY doit contenir au moins 32 caractères")
+        return secrets
+
+    def with_resolved_authentication_secrets(self) -> Settings:
+        """Return a copy containing resolved secrets for runtime use.
+
+        :returns: A settings copy with its active authentication secrets resolved.
+        :rtype: Settings
+        """
+        updates: dict[str, str | None] = {}
+        updates.update(self._authentication_secrets())
+        updates["SECRET_KEY_FILE"] = None
+        if self.AUTH_MODE == "internal":
+            updates["ADMIN_PASSWORD_FILE"] = None
+        else:
+            updates["OIDC_CLIENT_SECRET_FILE"] = None
+        return self.model_copy(update=updates)
 
     def _validate_environment(self, is_production: bool) -> None:
         if is_production and self.DEBUG:
@@ -274,11 +288,15 @@ class Settings(YamlSettingsBase):
                 "ENFORCE_SECURE_CONNECTION doit être activé en production"
             )
 
-    def _validate_oidc_configuration(self, is_production: bool) -> None:
+    def _validate_oidc_configuration(
+        self,
+        is_production: bool,
+        client_secret: str,
+    ) -> None:
         required = (
             self.OIDC_ISSUER,
             self.OIDC_CLIENT_ID,
-            self.OIDC_CLIENT_SECRET,
+            client_secret,
             self.OIDC_REDIRECT_URI,
         )
         if not all(required):

@@ -25,8 +25,10 @@ from pydantic import ValidationError
 from sqlalchemy import select
 from sqlalchemy.exc import SQLAlchemyError
 from werkzeug.exceptions import HTTPException
+from requests.exceptions import RequestException
 
 from api.database import get_session
+from api.common.db_objects import User
 from api.common.db_objects.sessions import Session as UserSession
 from api.common.other_objects import PasswordChange
 from api.common.repositories import ConflictError, NotFoundError
@@ -38,6 +40,7 @@ from api.config.global_config import (
     is_volume_mounted,
     load_configuration,
     redact_secrets,
+    unchanged_secret_paths,
     validate_configuration,
     write_configuration,
 )
@@ -49,8 +52,13 @@ from auth.decorators import (
     require_admin,
     require_authenticated_user,
 )
-from auth.exceptions import InvalidCredentialsError
+from auth.exceptions import InvalidCredentialsError, OIDCAuthenticationError
 from auth.manager import get_manager
+from auth.models import UnifiedUser
+from auth.services.cli_login_ticket import (
+    CLI_LOGIN_TICKET_LIFETIME,
+    CliLoginTicketService,
+)
 from .admin import admin
 from .user import user_api
 
@@ -97,6 +105,22 @@ def validate_global_config() -> Response:
     return jsonify(valid=not errors, errors=errors)
 
 
+@global_config.post("/compare")
+def compare_global_config() -> tuple[Response, int] | Response:
+    """Compare direct candidate secrets without returning their values."""
+    candidate = request.get_json(silent=True)
+    errors = validate_configuration(candidate)
+    if errors:
+        return jsonify(error="Invalid configuration", details=errors), 400
+
+    try:
+        unchanged = unchanged_secret_paths(candidate)
+    except GlobalConfigError:
+        current_app.logger.exception("Unable to compare application secrets")
+        return jsonify(error="Unable to compare application secrets."), 500
+    return jsonify(unchanged_secrets=unchanged)
+
+
 @global_config.post("/apply")
 def apply_global_config() -> tuple[Response, int] | Response:
     """Validate and atomically persist an application YAML candidate."""
@@ -123,6 +147,7 @@ def apply_global_config() -> tuple[Response, int] | Response:
 
 
 api_v1 = Blueprint("api_v1", __name__, url_prefix="/api/v1")
+_INVALID_CLI_LOGIN_TICKET = "Invalid or expired login ticket"
 api_v1.register_blueprint(admin)
 api_v1.register_blueprint(user_api)
 api_v1.register_blueprint(global_config)
@@ -136,6 +161,13 @@ def protect_cookie_authenticated_requests() -> None:
     :raises: 400 if the CSRF token is missing or invalid.
     """
     if request.method in {"GET", "HEAD", "OPTIONS", "TRACE"}:
+        return
+
+    if request.endpoint in {
+        "api_v1.exchange_oidc_cli_ticket",
+        "api_v1.begin_oidc_device_authorization",
+        "api_v1.poll_oidc_device_authorization",
+    }:
         return
 
     scheme, separator, credentials = request.headers.get(
@@ -172,6 +204,102 @@ def authenticate():
     except RuntimeError:
         return jsonify(error="Authentication manager not configured"), 501
     return controller.api_login(request.get_json(silent=True))
+
+
+def _no_store(response: Response) -> Response:
+    """Prevent caching authentication flow responses."""
+    response.headers["Cache-Control"] = "no-store"
+    return response
+
+
+@api_v1.post("/auth/oidc/exchange")
+def exchange_oidc_cli_ticket() -> tuple[Response, int] | Response:
+    """Exchange a short-lived CLI login ticket for a Bearer session."""
+    raw_payload = request.get_json(silent=True)
+    payload = cast(dict[str, object], raw_payload) if isinstance(raw_payload, dict) else {}
+    ticket = payload.get("ticket")
+    if not isinstance(ticket, str) or not ticket:
+        return _no_store(jsonify(error=_INVALID_CLI_LOGIN_TICKET)), 400
+
+    ticket_service = CliLoginTicketService(
+        get_session(),
+        CLI_LOGIN_TICKET_LIFETIME,
+    )
+    user_id = ticket_service.consume(ticket)
+    if user_id is None:
+        return _no_store(jsonify(error=_INVALID_CLI_LOGIN_TICKET)), 401
+
+    database_session = get_session()
+    user = database_session.get(User, user_id)
+    if user is None or not user.enabled:
+        return _no_store(jsonify(error=_INVALID_CLI_LOGIN_TICKET)), 401
+
+    result = get_manager().create_session(UnifiedUser.from_db_user(user))
+    return _no_store(jsonify(
+        access_token=result.session_token,
+        token_type="Bearer",
+    ))
+
+
+@api_v1.post("/auth/oidc/device")
+def begin_oidc_device_authorization() -> tuple[Response, int] | Response:
+    """Start a Device Authorization request with the configured OIDC provider."""
+    app_config = cast(dict[str, object], current_app.config)
+    if app_config.get("AUTH_MODE") != "external":
+        return _no_store(jsonify(error="OIDC authentication is not enabled")), 501
+
+    try:
+        response_data = get_manager().backend.begin_device_authorization(
+            cast(str, app_config["OIDC_CLIENT_ID"]),
+            cast(str, app_config["OIDC_CLIENT_SECRET"]),
+        )
+    except RuntimeError as error:
+        current_app.logger.warning("Unable to start OIDC device authorization: %s", error)
+        return _no_store(jsonify(error="OIDC device authorization is unavailable")), 501
+    except (OIDCAuthenticationError, RequestException, ValueError, KeyError):
+        current_app.logger.exception("Unable to start OIDC device authorization")
+        return _no_store(jsonify(error="Unable to start OIDC device authorization")), 502
+
+    return _no_store(jsonify(response_data))
+
+
+@api_v1.post("/auth/oidc/device/poll")
+def poll_oidc_device_authorization() -> tuple[Response, int] | Response:
+    """Poll a Device Authorization request and create a local session on success."""
+    app_config = cast(dict[str, object], current_app.config)
+    if app_config.get("AUTH_MODE") != "external":
+        return _no_store(jsonify(error="OIDC authentication is not enabled")), 501
+    raw_payload = request.get_json(silent=True)
+    payload = cast(dict[str, object], raw_payload) if isinstance(raw_payload, dict) else {}
+    device_code = payload.get("device_code")
+    if not isinstance(device_code, str) or not device_code:
+        return _no_store(jsonify(error="Invalid device authorization code")), 400
+
+    try:
+        result = get_manager().backend.poll_device_authorization(
+            device_code,
+            cast(str, app_config["OIDC_CLIENT_ID"]),
+            cast(str, app_config["OIDC_CLIENT_SECRET"]),
+        )
+    except RuntimeError as error:
+        current_app.logger.warning("Unable to poll OIDC device authorization: %s", error)
+        return _no_store(jsonify(error="OIDC device authorization is unavailable")), 501
+    except (OIDCAuthenticationError, RequestException, ValueError, KeyError):
+        current_app.logger.exception("Unable to poll OIDC device authorization")
+        return _no_store(jsonify(error="Unable to poll OIDC device authorization")), 502
+
+    if result.get("status") != "complete":
+        return _no_store(jsonify(status=result.get("status")))
+    user = result.get("user")
+    if not isinstance(user, UnifiedUser):
+        return _no_store(jsonify(error="OIDC provider returned an invalid identity")), 502
+
+    authentication = get_manager().create_session(user)
+    return _no_store(jsonify(
+        status="complete",
+        access_token=authentication.session_token,
+        token_type="Bearer",
+    ))
 
 
 @api_v1.get("/users/me")

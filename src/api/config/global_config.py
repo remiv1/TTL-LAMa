@@ -14,6 +14,7 @@
 from __future__ import annotations
 
 import copy
+import hmac
 import os
 import re
 import stat
@@ -129,6 +130,44 @@ def validate_configuration(configuration: object) -> list[str]:
         except (TypeError, ValueError) as error:
             errors.append(str(error))
     return errors
+
+
+def unchanged_secret_paths(configuration: object) -> list[str]:
+    """Return direct-secret paths whose candidate values match the stored YAML.
+
+    :param configuration: The candidate document received from the CLI.
+    :type configuration: object
+    :returns: Dotted paths for matching direct secrets; no secret values are returned.
+    :rtype: list[str]
+    """
+    if not isinstance(configuration, dict):
+        return []
+
+    current = load_configuration()
+    candidate = cast(dict[str, object], configuration)
+    unchanged: list[str] = []
+    for path in SECRET_PATHS:
+        current_value = _value_at_path(current, path)
+        candidate_value = _value_at_path(candidate, path)
+        if (
+            isinstance(current_value, str)
+            and isinstance(candidate_value, str)
+            and hmac.compare_digest(
+                current_value.encode("utf-8"),
+                candidate_value.encode("utf-8"),
+            )
+        ):
+            unchanged.append(".".join(path))
+    return unchanged
+
+
+def _value_at_path(configuration: dict[str, object], path: tuple[str, ...]) -> object:
+    value: object = configuration
+    for key in path:
+        if not isinstance(value, dict):
+            return None
+        value = cast(dict[str, object], value).get(key)
+    return value
 
 
 def write_configuration(configuration: dict[str, object]) -> None:
