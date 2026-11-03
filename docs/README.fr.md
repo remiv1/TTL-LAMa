@@ -41,11 +41,11 @@ TTL-LAMa gère des baux d’accès ; ce n’est ni une interface générale d’
 
 | Sujet | Français | English |
 | --- | --- | --- |
-| Architecture et modèle métier | [Architecture](docs/architecture.fr.md) | [Architecture](docs/architecture.md) |
-| Déploiement et configuration | [Déploiement](docs/deployment.fr.md) | [Deployment](docs/deployment.md) |
-| Cycle de vie et réconciliation | [Fonctionnement](docs/operations.fr.md) | [Operations](docs/operations.md) |
-| Principes de sécurité | [Sécurité](docs/security.fr.md) | [Security](docs/security.md) |
-| Cas d’usage, feuille de route et état | [Projet](docs/project.fr.md) | [Project](docs/project.md) |
+| Architecture et modèle métier | [Architecture](architecture.fr.md) | [Architecture](architecture.md) |
+| Déploiement et configuration | [Déploiement](deployment.fr.md) | [Deployment](deployment.md) |
+| Cycle de vie et réconciliation | [Fonctionnement](operations.fr.md) | [Operations](operations.md) |
+| Principes de sécurité | [Sécurité](security.fr.md) | [Security](security.md) |
+| Cas d’usage, feuille de route et état | [Projet](project.fr.md) | [Project](project.md) |
 
 ## État du projet
 

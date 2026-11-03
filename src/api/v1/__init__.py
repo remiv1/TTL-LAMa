@@ -5,6 +5,9 @@
 .. routes::
     - `/csrf`: Get a CSRF token.
     - `/auth`: Authenticate an internal user and return a Bearer token.
+    - `/global-config`: Read the application YAML configuration.
+    - `/global-config/validate`: Validate an application YAML candidate.
+    - `/global-config/apply`: Persist an application YAML candidate.
         - `/users/me/overview`: Get the authenticated user's identity and access resources.
     - `/users/me/password`: Change the authenticated user's internal password.
 
@@ -21,6 +24,7 @@ from flask_wtf.csrf import CSRFProtect, generate_csrf
 from pydantic import ValidationError
 from sqlalchemy import select
 from sqlalchemy.exc import SQLAlchemyError
+from werkzeug.exceptions import HTTPException
 
 from api.database import get_session
 from api.common.db_objects.sessions import Session as UserSession
@@ -28,11 +32,21 @@ from api.common.other_objects import PasswordChange
 from api.common.repositories import ConflictError, NotFoundError
 from api.common.repositories import DeviceRepository, LeaseRepository, ProfileRepository
 from api.common.repositories.leases import lease_status, utcnow
+from api.config.global_config import (
+    GlobalConfigError,
+    configuration_path,
+    is_volume_mounted,
+    load_configuration,
+    redact_secrets,
+    validate_configuration,
+    write_configuration,
+)
 from auth.backends.internal import InternalAuthBackend
 from auth.controller import AuthController
 from auth.decorators import (
     get_authenticated_session_token,
     get_authenticated_user,
+    require_admin,
     require_authenticated_user,
 )
 from auth.exceptions import InvalidCredentialsError
@@ -40,9 +54,78 @@ from auth.manager import get_manager
 from .admin import admin
 from .user import user_api
 
+global_config = Blueprint(
+    "global_config",
+    __name__,
+    url_prefix="/global-config",
+)
+
+
+@global_config.before_request
+@require_admin
+def authorize_global_config() -> None:
+    """Require the same persisted administrator authorization as admin routes."""
+
+
+@global_config.after_request
+def prevent_global_config_caching(response: Response) -> Response:
+    """Prevent caching configuration responses that may contain redacted secrets."""
+    response.headers["Cache-Control"] = "no-store"
+    return response
+
+
+@global_config.errorhandler(HTTPException)
+def global_config_http_error(error: HTTPException) -> tuple[Response, int]:
+    """Keep authorization and request errors in the administrative JSON format."""
+    return jsonify(error=error.description), error.code or 500
+
+
+@global_config.get("")
+def get_global_config() -> Response | tuple[Response, int]:
+    """Read the current YAML configuration with direct secrets masked."""
+    try:
+        return jsonify(redact_secrets(load_configuration()))
+    except GlobalConfigError:
+        current_app.logger.exception("Unable to read the application configuration")
+        return jsonify(error="Unable to read the application configuration."), 500
+
+
+@global_config.post("/validate")
+def validate_global_config() -> Response:
+    """Validate an application YAML candidate without persisting it."""
+    errors = validate_configuration(request.get_json(silent=True))
+    return jsonify(valid=not errors, errors=errors)
+
+
+@global_config.post("/apply")
+def apply_global_config() -> tuple[Response, int] | Response:
+    """Validate and atomically persist an application YAML candidate."""
+    candidate = request.get_json(silent=True)
+    errors = validate_configuration(candidate)
+    if errors:
+        return jsonify(error="Invalid configuration", details=errors), 400
+
+    try:
+        write_configuration(cast(dict[str, object], candidate))
+    except GlobalConfigError:
+        current_app.logger.exception("Unable to write the application configuration")
+        return jsonify(error="Unable to write the application configuration."), 500
+
+    mounted = is_volume_mounted(configuration_path())
+    return jsonify(
+        applied=True,
+        restart_required=True,
+        warning=None if mounted else (
+            "The configuration file is not covered by a volume mount; "
+            "the change may be lost when the container is replaced."
+        ),
+    )
+
+
 api_v1 = Blueprint("api_v1", __name__, url_prefix="/api/v1")
 api_v1.register_blueprint(admin)
 api_v1.register_blueprint(user_api)
+api_v1.register_blueprint(global_config)
 
 
 

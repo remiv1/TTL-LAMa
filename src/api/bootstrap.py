@@ -30,7 +30,7 @@ from api.config import (
     FlaskSettings,
     PasswordHasherSettings,
 )
-from api.v1 import api_v1
+from api.v1 import api_v1, global_config
 from api.v1.admin import admin
 from api.v1.user import user_api
 from api.common.repositories import ProfileRepository
@@ -189,6 +189,7 @@ def _register_blueprints(app: Flask) -> None:
     # by other means, such as authentication and authorization mechanisms.
     csrf.exempt(api_v1) # NOSONAR
     csrf.exempt(admin) # NOSONAR - parent hook enforces CSRF for cookie requests
+    csrf.exempt(global_config) # NOSONAR - parent hook enforces CSRF for cookie requests
     csrf.exempt(user_api) # NOSONAR - parent hook enforces CSRF for cookie requests
     for blueprint in (auth_bp, api_v1, web):
         app.register_blueprint(blueprint)

@@ -68,8 +68,15 @@ from auth.backends.internal import InternalAuthBackend
 from auth.decorators import require_admin
 from auth.manager import get_manager
 from .schemas import (
-    DeviceFilters, DevicePatch, LeaseFilters, ProfileCreate, ProfileFilters,
-    ProfilePatch, UserCreate, UserFilters, UserPatch,
+    DeviceFilters,
+    DevicePatch,
+    LeaseFilters,
+    ProfileCreate,
+    ProfileFilters,
+    ProfilePatch,
+    UserCreate,
+    UserFilters,
+    UserPatch,
 )
 
 admin = Blueprint("admin", __name__, url_prefix="/admin")

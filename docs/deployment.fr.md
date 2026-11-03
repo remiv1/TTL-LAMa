@@ -29,9 +29,9 @@ podman volume create ttl-lama-data
 podman run -d --name ttl-lama \
   -p 8080:8080 \
   --env-file .env \
-  -v "/chemin/vers/config.yml:/etc/ttl-lama/config.yml:ro" \
-  -v "$PWD/secrets:/run/secrets:ro" \
-  -v ttl-lama-data:/data \
+  -v "/chemin/vers/config.yml:/etc/ttl-lama/config.yml:z,rw" \
+  -v "$PWD/secrets:/run/secrets:z,ro" \
+  -v ttl-lama-data:/data:z,rw \
   ttl-lama:latest
 ```
 
@@ -40,6 +40,8 @@ Le build de l’image compile le SCSS et copie htmx et les fontes dans l’image
 Gunicorn précharge l’application dans son processus maître : la création des tables, l’import des profils et l’initialisation de l’administrateur sont terminés avant le lancement des workers. Les sessions et connexions SQLAlchemy du maître sont ensuite fermées avant le fork ; chaque worker ouvre ses propres connexions. Ce mécanisme est indépendant du SGBD et fonctionne avec SQLite, PostgreSQL, MariaDB et MySQL. Une erreur d’initialisation empêche le démarrage des workers. Conservez le préchargement lors de la personnalisation de Gunicorn. Cette coordination concerne une seule instance Gunicorn, pas plusieurs conteneurs démarrant simultanément sur la même base.
 
 Remplacez `/chemin/vers/config.yml` par le chemin absolu de votre configuration. Si vous souhaitez utiliser le fichier YAML intégré à l’image, omettez son montage. Le volume nommé `ttl-lama-data` conserve la base SQLite et la clé Flask générée entre les redémarrages. Pour arrêter puis supprimer le conteneur sans supprimer les données : `podman stop ttl-lama` puis `podman rm ttl-lama`.
+
+La CLI administrateur peut mettre à jour le YAML choisi par `TTL_LAMA_CONFIG_FILE` avec `ttlama global-config apply --file <candidat.yml>`. Montez ce fichier dans un volume persistant si les changements doivent survivre au remplacement du conteneur ; sinon, la commande avertit qu’ils pourraient être perdus. Gunicorn charge les réglages au démarrage : après une mise à jour réussie, un redémarrage externe du conteneur est requis. Les variables d’environnement restent prioritaires sur le YAML. Cette commande ne modifie ni `access-profiles.yml` ni les policies de profils en base.
 
 Le modèle intégré active l’authentification interne en développement : `DEBUG` est activé, les connexions HTTP sont autorisées et les cookies ne sont pas marqués `Secure`. Le mot de passe initial du compte `admin` est `admin`. Pour une première initialisation en production, remplacez-le dans la configuration avant le démarrage. Cette valeur sert uniquement à créer le compte : changer la configuration ensuite ne modifie pas le mot de passe déjà stocké.
 

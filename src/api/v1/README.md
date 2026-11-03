@@ -7,6 +7,7 @@ app
  ├── api
  │    ├── v1
  │    │    ├── auth (POST)
+ │    │    ├── global-config (GET, POST)
  │    │    ├── users (GET, PATCH)
  │    │    │     ├── devices  (GET)
  │    │    │     ├── leases   (GET, POST, PATCH)
@@ -36,6 +37,26 @@ Cookie-authenticated mutations also require `X-CSRFToken`, obtained from
 `GET /api/v1/csrf`. Requests without valid bearer authentication undergo CSRF
 validation first and may receive 400 for a missing token. Bearer-authenticated
 mutations do not require CSRF. Authorization headers take precedence over cookies.
+
+### Global configuration API
+
+The configuration endpoints are a separate API v1 Blueprint at
+`/api/v1/global-config`; they use the same administrator authorization and
+cookie-CSRF rules described above. `GET /api/v1/global-config` returns the raw
+application YAML document with direct secret values masked. `POST
+/api/v1/global-config/validate` accepts a candidate document and returns
+`valid` plus `errors` without writing it. `POST /api/v1/global-config/apply`
+validates and atomically writes the candidate to the server's configured YAML
+path (`TTL_LAMA_CONFIG_FILE`, default `/etc/ttl-lama/config.yml`). Its response
+sets `restart_required` and includes a warning when the file is not covered by
+a volume mount.
+
+The endpoints manage application settings only: profile definitions,
+`access-profiles.yml`, and profile policies in the database are out of scope.
+The masked marker `[REDACTED]` is rejected in candidates; supply a secret value
+or a supported secret-file reference. Environment variables continue to
+override YAML values, and changes take effect only after an external server
+restart.
 
 ### Self-service user API
 
@@ -150,8 +171,7 @@ cannot be overwritten.
 
 Repositories in [`api/common/repositories`](../common/repositories) share
 queries, password/session changes, policy validation and dependent revocations.
-They flush when necessary but never commit: API handlers own transactions, and
-future global-config operations can compose repositories into one transaction.
+They flush when necessary but never commit: API handlers own transactions.
 
 Policies are persisted in the new `profile_policies` table, created by normal
 database initialization without altering existing profile columns. At startup,

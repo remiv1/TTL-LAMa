@@ -230,8 +230,8 @@ TEXT = {
 		"device_error": "La création de l’appareil a échoué.",
 		"delete_device": "Révoquer l’appareil",
 		"delete_device_title": "Révoquer cet appareil ?",
-		"delete_device_notice": "Cette action révoquera l’appareil ainsi que tous ses baux d’accès actifs. " +
-            "L’historique de l’appareil sera conservé.",
+		"delete_device_notice": "Cette action révoquera l’appareil ainsi que tous ses " +
+			"baux d’accès actifs. L’historique de l’appareil sera conservé.",
 		"confirm_delete_device": "Révoquer l’appareil",
 		"cancel": "Annuler",
 		"delete_device_success": "L’appareil a été révoqué.",
