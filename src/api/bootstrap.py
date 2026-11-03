@@ -115,7 +115,7 @@ def _register_oidc_client(app: Flask, settings: FlaskSettings) -> None:
         server_metadata_url=f"{issuer}/.well-known/openid-configuration",
         client_id=settings.OIDC_CLIENT_ID,
         client_secret=settings.OIDC_CLIENT_SECRET,
-        client_kwargs={"scope": "openid"},
+        client_kwargs={"scope": "openid profile"},
     )
 
 
@@ -146,6 +146,9 @@ def _create_auth_manager(
         timedelta(seconds=flask_settings.SESSION_LIFETIME),
     )
     if flask_settings.AUTH_MODE == "external":
+        user_service.create_external_admin_if_oidc_empty(
+            flask_settings.ADMIN_USERNAME,
+        )
         backend = OIDCAuthBackend(
             user_service,
             OIDCParams(
@@ -156,6 +159,7 @@ def _create_auth_manager(
                 issuer=flask_settings.OIDC_ISSUER.rstrip("/"),
                 redirect_uri=flask_settings.OIDC_REDIRECT_URI,
             ),
+            initial_admin_username=flask_settings.ADMIN_USERNAME,
         )
     else:
         settings = password_hasher_settings or PasswordHasherSettings()

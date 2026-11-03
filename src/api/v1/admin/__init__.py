@@ -262,11 +262,14 @@ def create_user() -> tuple[Response, int]:
         generated_password = secrets.token_urlsafe(32)
         password = generated_password
 
-    user = UserRepository(get_session()).create(
+    repository = UserRepository(get_session())
+    user = repository.create(
         username=data.username, email=data.email,
         enabled=data.enabled, is_admin=data.is_admin,
         password_hash=hash_password(password) if password is not None else None,
     )
+    for link in data.oidc_links:
+        repository.link_oidc(user, link.issuer, link.subject)
     if generated_password is not None:
         get_session().commit()
         return jsonify(
@@ -282,6 +285,10 @@ def update_user(user_id: UUID) -> tuple[Response, int]:
     data = body(UserPatch)
     repository = UserRepository(get_session())
     user = repository.get(str(user_id))
+    for link in data.link_oidc:
+        repository.link_oidc(user, link.issuer, link.subject)
+    for link in data.unlink_oidc:
+        repository.unlink_oidc(user, link.issuer, link.subject)
     if data.username is not None:
         user.username = data.username
     if "email" in data.model_fields_set:

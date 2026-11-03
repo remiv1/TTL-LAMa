@@ -63,11 +63,13 @@ class OIDCAuthBackend(AuthBackend):
         self,
         user_service: UserService,
         oidc_params: OIDCParams,
+        initial_admin_username: str | None = None,
     ) -> None:
         self.oidc_client = cast(_OIDCClient, oidc_params.oidc_client)
         self.user_service = user_service
         self.issuer = oidc_params.issuer
         self.redirect_uri = oidc_params.redirect_uri
+        self.initial_admin_username = initial_admin_username
 
     def authenticate(self, credentials: dict[str, object] | None = None) -> UnifiedUser | None:
         """Signale that this backend doesn't support authentication via credentials.
@@ -101,7 +103,7 @@ class OIDCAuthBackend(AuthBackend):
         :raises OIDCAuthenticationError: If the login flow could not be completed successfully.
         """
         token = self.oidc_client.authorize_access_token()
-        return self._user_from_claims(token.get("userinfo"))
+        return self._user_from_claims(token.get("userinfo"), allow_first_link=True)
 
     def begin_device_authorization(
         self,
@@ -119,8 +121,11 @@ class OIDCAuthBackend(AuthBackend):
         try:
             response = post(
                 endpoint,
-                data={"client_id": client_id, "scope": "openid"},
-                auth=HTTPBasicAuth(client_id, client_secret),
+                data={
+                    "client_id": client_id,
+                    "client_secret": client_secret,
+                    "scope": "openid profile",
+                },
                 timeout=10,
             )
             raw_payload = response.json()
@@ -236,9 +241,17 @@ class OIDCAuthBackend(AuthBackend):
             raise OIDCAuthenticationError(
                 "The OIDC provider returned no ID token for device authorization."
             )
-        return {"status": "complete", "user": self._user_from_claims(user_info)}
+        return {
+            "status": "complete",
+            "user": self._user_from_claims(user_info, allow_first_link=True),
+        }
 
-    def _user_from_claims(self, user_info: object) -> UnifiedUser:
+    def _user_from_claims(
+        self,
+        user_info: object,
+        *,
+        allow_first_link: bool = False,
+    ) -> UnifiedUser:
         """Resolve validated OIDC claims to an enabled local account."""
 
         if not isinstance(user_info, Mapping):
@@ -250,6 +263,18 @@ class OIDCAuthBackend(AuthBackend):
             raise OIDCAuthenticationError("Invalid subject in user info from OIDC provider.")
 
         user = self.user_service.get_by_oidc(self.issuer, subject)
+        preferred_username = claims.get("preferred_username")
+        if (
+            user is None
+            and allow_first_link
+            and self.initial_admin_username is not None
+            and preferred_username == self.initial_admin_username
+        ):
+            user = self.user_service.link_first_oidc_admin_identity(
+                self.initial_admin_username,
+                self.issuer,
+                subject,
+            )
         if user is None:
             raise AccountNotFoundError("No account found for the given OIDC subject.")
         if not user.enabled:

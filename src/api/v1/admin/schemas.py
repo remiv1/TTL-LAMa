@@ -18,7 +18,7 @@ from __future__ import annotations
 from typing import Annotated, Literal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field, StringConstraints
+from pydantic import BaseModel, ConfigDict, Field, StringConstraints, model_validator
 
 from api.config.c_profiles import AccessProfile
 
@@ -43,6 +43,32 @@ class Input(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True)
 
 
+class OIDCLink(Input):
+    """Identify an external OIDC account by its issuer and subject.
+
+    :param issuer: The exact issuer URL from the identity provider.
+    :type issuer: str
+    :param subject: The stable subject identifier from the identity provider.
+    :type subject: str
+
+    .. author:: Rémi Verschuur <rverschuur@audit-io.fr>
+    .. version:: 1.0.0
+    """
+
+    issuer: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=255)]
+    subject: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=255)]
+
+
+def _validate_unique_oidc_links(links: list[OIDCLink]) -> None:
+    identities = [(link.issuer, link.subject) for link in links]
+    if len(identities) != len(set(identities)):
+        raise ValueError("OIDC identities must not be repeated")
+
+
+def _empty_oidc_links() -> list[OIDCLink]:
+    return []
+
+
 class UserCreate(Input):
     """Create a local identity, optionally with internal credentials.
     
@@ -52,6 +78,7 @@ class UserCreate(Input):
         - `enabled`: Whether the user is enabled.
         - `is_admin`: Whether the user has administrative privileges.
         - `password`: The password for the user.
+        - `oidc_links`: External OIDC identities linked to the user.
 
     .. author:: Rémi Verschuur <rverschuur@audit-io.fr>
     .. version:: 1.0.0
@@ -61,6 +88,18 @@ class UserCreate(Input):
     enabled: bool = True
     is_admin: bool = False
     password: Password | None = None
+    oidc_links: list[OIDCLink] = Field(default_factory=_empty_oidc_links)
+
+    @model_validator(mode="after")
+    def validate_oidc_links(self) -> UserCreate:
+        """Validate that OIDC links are unique and not repeated.
+
+        :return: The validated UserCreate instance.
+        :rtype: UserCreate
+        :raises ValueError: If any OIDC identity is repeated.
+        """
+        _validate_unique_oidc_links(self.oidc_links)
+        return self
 
 
 class UserPatch(Input):
@@ -72,6 +111,8 @@ class UserPatch(Input):
         - `enabled`: Whether the user is enabled.
         - `is_admin`: Whether the user has administrative privileges.
         - `password`: The password for the user.
+        - `link_oidc`: OIDC identities to link to the user.
+        - `unlink_oidc`: OIDC identities to unlink from the user.
 
     .. author:: Rémi Verschuur <rverschuur@audit-io.fr>
     .. version:: 1.0.0
@@ -81,6 +122,24 @@ class UserPatch(Input):
     enabled: bool | None = None
     is_admin: bool | None = None
     password: Password | None = None
+    link_oidc: list[OIDCLink] = Field(default_factory=_empty_oidc_links)
+    unlink_oidc: list[OIDCLink] = Field(default_factory=_empty_oidc_links)
+
+    @model_validator(mode="after")
+    def validate_oidc_changes(self) -> UserPatch:
+        """Validate that OIDC changes are consistent.
+
+        :return: The validated UserPatch instance.
+        :rtype: UserPatch
+        :raises ValueError: If any OIDC identity is repeated or conflicting.
+        """
+        _validate_unique_oidc_links(self.link_oidc)
+        _validate_unique_oidc_links(self.unlink_oidc)
+        linked = {(link.issuer, link.subject) for link in self.link_oidc}
+        unlinked = {(link.issuer, link.subject) for link in self.unlink_oidc}
+        if linked & unlinked:
+            raise ValueError("An OIDC identity cannot be linked and unlinked together")
+        return self
 
 
 class DevicePatch(Input):

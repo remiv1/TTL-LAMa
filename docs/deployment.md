@@ -37,11 +37,21 @@ podman run -d --name ttl-lama \
 
 The image build compiles the SCSS and copies htmx and fonts into the image. Generated web assets do not need to be present in the repository.
 
-Gunicorn preloads the application in its master process: table creation, profile import, and administrator initialization finish before workers start. The master's SQLAlchemy sessions and connections are then closed before the fork; each worker opens its own connections. This mechanism is database-independent and works with SQLite, PostgreSQL, MariaDB, and MySQL. Initialization failures prevent workers from starting. Keep preloading enabled when customizing Gunicorn. This coordination covers a single Gunicorn instance, not multiple containers starting simultaneously against the same database.
+Gunicorn preloads the application in its master process: table creation, profile import, and administrator initialization finish before workers start. In external mode, if no OIDC identity is linked yet, TTL-LAMa prepares the account named by `auth.admin.username` without an internal credential. The master's SQLAlchemy sessions and connections are then closed before the fork; each worker opens its own connections. This mechanism is database-independent and works with SQLite, PostgreSQL, MariaDB, and MySQL. Initialization failures prevent workers from starting. Keep preloading enabled when customizing Gunicorn. This coordination covers a single Gunicorn instance, not multiple containers starting simultaneously against the same database.
 
 Replace `/path/to/config.yml` with the absolute path to your configuration file. Omit its mount to use the YAML file embedded in the image. The named `ttl-lama-data` volume preserves the SQLite database and generated Flask key across container restarts. To stop and remove the container without removing its data, run `podman stop ttl-lama` followed by `podman rm ttl-lama`.
 
 The administrator CLI can update the YAML selected by `TTL_LAMA_CONFIG_FILE` with `ttlama global-config apply --file <candidate.yml>`. Mount that file as a persistent volume if updates must survive container replacement; otherwise, the command warns that the change may be lost. Gunicorn preloads application settings at startup, so a successful update reports that an external container restart is required. Environment variables still take precedence over YAML. This command does not modify `access-profiles.yml` or profile policies in the database.
+
+In `external` mode, the first OIDC login for the account prepared at startup links its identity to the local account, either through the browser callback or the `--distant` device flow. The `preferred_username` claim must exactly match `auth.admin.username`, and `sub` must be present in the validated ID token. The `openid profile` scopes are requested for this purpose. No email matching is performed. Once the first identity is linked, all logins require the exact issuer and subject pair.
+
+If the provider does not return `preferred_username` or an explicit operator intervention is required, an operator with container access can link the identity manually:
+
+```sh
+podman exec --env TTL_LAMA_SECRET_KEY_FILE=/data/flask_secret_key ttl-lama python -m api.local_admin bootstrap-oidc-admin --user-id "08a8684b-db88-4b73-90a9-3cd1661f5466"
+```
+
+The command reads the username from `auth.admin.username` and the issuer from `auth.oidc.issuer`. The example uses the `userID` configured in the provided Dex setup; replace it if your Dex configuration uses another value. The Dex `userID` is the OIDC `sub` claim (for example, `staticPasswords[].userID`), not the username or email address. The entrypoint exports the generated Flask key path only for Gunicorn; `podman exec` does not inherit that environment, hence `TTL_LAMA_SECRET_KEY_FILE=/data/flask_secret_key`. If `app.secret_key_file` is configured, pass that path instead. An identity already linked to another account causes an error. If the username already exists, only the OIDC link is added; its role, enabled state, and credentials are preserved. The command is idempotent and does not modify the YAML.
 
 The embedded configuration enables internal authentication in development: `DEBUG` is enabled, HTTP connections are allowed, and cookies are not marked `Secure`. The initial `admin` account password is `admin`. For the first production initialization, replace it in the configuration before startup. This value is used only to create the account; changing the configuration later does not change the password already stored.
 

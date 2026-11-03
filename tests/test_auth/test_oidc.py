@@ -75,11 +75,23 @@ class FakeUserService:   # pylint: disable=R0903
     def __init__(self, user: User | None) -> None:
         self.user = user
         self.lookup: tuple[str, str] | None = None
+        self.first_link_user: User | None = None
+        self.first_link_call: tuple[str, str, str] | None = None
 
     def get_by_oidc(self, issuer: str, subject: str) -> User | None:
         """Simulate retrieving a user by their OIDC issuer and subject."""
         self.lookup = (issuer, subject)
         return self.user
+
+    def link_first_oidc_admin_identity(
+        self,
+        username: str,
+        issuer: str,
+        subject: str,
+    ) -> User | None:
+        """Record and simulate the guarded first-admin identity link."""
+        self.first_link_call = (username, issuer, subject)
+        return self.first_link_user
 
 def test_complete_login_returns_linked_local_user() -> None:
     """Test that completing login returns the linked local user."""
@@ -128,6 +140,73 @@ def test_complete_login_rejects_unknown_identity() -> None:
         backend.complete_login()
 
     assert user_service.lookup == ("http://dex:5556/dex", "known-subject")
+
+
+def test_complete_login_links_first_admin_identity_on_matching_username() -> None:
+    """Link an unknown OIDC subject only for the configured preferred username."""
+    admin = User(
+        id="local-admin-id",
+        username="admin",
+        enabled=True,
+        is_admin=True,
+    )
+    user_service = FakeUserService(None)
+    user_service.first_link_user = admin
+    oidc_client = FakeOIDCClient({
+        "userinfo": {
+            "sub": "first-subject",
+            "preferred_username": "admin",
+        },
+    })
+    backend = OIDCAuthBackend(
+        cast(UserService, user_service),
+        OIDCParams(
+            oidc_client=cast(FlaskOAuth2App, oidc_client),
+            issuer="http://dex:5556/dex",
+            redirect_uri="http://localhost/auth/callback",
+        ),
+        initial_admin_username="admin",
+    )
+
+    result = backend.complete_login()
+
+    assert result.username == "admin"
+    assert user_service.first_link_call == (
+        "admin",
+        "http://dex:5556/dex",
+        "first-subject",
+    )
+
+
+def test_complete_login_does_not_link_first_identity_for_different_username() -> None:
+    """Reject the first identity when its preferred username differs from admin."""
+    user_service = FakeUserService(None)
+    user_service.first_link_user = User(
+        id="local-admin-id",
+        username="admin",
+        enabled=True,
+        is_admin=True,
+    )
+    oidc_client = FakeOIDCClient({
+        "userinfo": {
+            "sub": "other-subject",
+            "preferred_username": "alice",
+        },
+    })
+    backend = OIDCAuthBackend(
+        cast(UserService, user_service),
+        OIDCParams(
+            oidc_client=cast(FlaskOAuth2App, oidc_client),
+            issuer="http://dex:5556/dex",
+            redirect_uri="http://localhost/auth/callback",
+        ),
+        initial_admin_username="admin",
+    )
+
+    with pytest.raises(AccountNotFoundError):
+        backend.complete_login()
+
+    assert user_service.first_link_call is None
 
 def test_complete_login_rejects_disabled_user() -> None:
     """Test that completing login rejects a disabled user."""
@@ -221,7 +300,13 @@ def test_begin_device_authorization_returns_only_provider_device_fields(
             "interval": 5,
         },
     )
-    def provider_post(*_args: object, **_kwargs: object) -> FakeProviderResponse:
+    def provider_post(*_args: object, **kwargs: object) -> FakeProviderResponse:
+        assert kwargs.get("data") == {
+            "client_id": "cli-client",
+            "client_secret": "client-secret",
+            "scope": "openid profile",
+        }
+        assert "auth" not in kwargs
         return response
 
     monkeypatch.setattr(oidc_module, "post", provider_post)
@@ -324,3 +409,65 @@ def test_poll_device_authorization_resolves_linked_user(
         ),
     }
     assert user_service.lookup == ("https://idp.example", "known-subject")
+
+
+@pytest.mark.parametrize(
+    ("preferred_username", "expected_link"),
+    [("admin", True), ("alice", False)],
+)
+def test_poll_device_authorization_links_first_admin_only_for_matching_username(
+    monkeypatch: pytest.MonkeyPatch,
+    preferred_username: str,
+    expected_link: bool,
+) -> None:
+    """Only the configured admin username can claim the first device identity."""
+    from auth.backends import oidc as oidc_module # pylint: disable=C0415
+
+    admin = User(
+        id="local-admin-id",
+        username="admin",
+        enabled=True,
+        is_admin=True,
+    )
+    user_service = FakeUserService(None)
+    user_service.first_link_user = admin
+    oidc_client = FakeOIDCClient()
+    oidc_client.device_user_info = {
+        "sub": "first-subject",
+        "preferred_username": preferred_username,
+    }
+
+    def provider_post(*_args: object, **_kwargs: object) -> FakeProviderResponse:
+        return FakeProviderResponse(200, {"access_token": "provider-token"})
+
+    monkeypatch.setattr(oidc_module, "post", provider_post)
+    backend = OIDCAuthBackend(
+        cast(UserService, user_service),
+        OIDCParams(
+            oidc_client=cast(FlaskOAuth2App, oidc_client),
+            issuer="https://idp.example",
+            redirect_uri="http://localhost/auth/callback",
+        ),
+        initial_admin_username="admin",
+    )
+
+    if expected_link:
+        result = backend.poll_device_authorization(
+            "private-device-code",
+            "cli-client",
+            "client-secret",
+        )
+        assert result == {"status": "complete", "user": UnifiedUser.from_db_user(admin)}
+        assert user_service.first_link_call == (
+            "admin",
+            "https://idp.example",
+            "first-subject",
+        )
+    else:
+        with pytest.raises(AccountNotFoundError):
+            backend.poll_device_authorization(
+                "private-device-code",
+                "cli-client",
+                "client-secret",
+            )
+        assert user_service.first_link_call is None

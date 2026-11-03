@@ -218,6 +218,101 @@ def test_user_creation_without_internal_backend_does_not_generate_password(
     assert stored_user.credentials == []
 
 
+def test_user_create_links_multiple_oidc_identities(domain: Domain) -> None:
+    """OIDC identities are persisted and resolve to the created local user."""
+    issuer = "http://dex.example.test/dex"
+    identities = [
+        {"issuer": issuer, "subject": "alice-subject"},
+        {"issuer": "https://identity.example.test", "subject": "alice-456"},
+    ]
+    response = domain.client.post(
+        domain.path("users"),
+        headers=domain.headers,
+        json={"username": "oidc-alice", "oidc_links": identities},
+    )
+
+    assert response.status_code == 201
+    payload = json_object(response)
+    user_payload = payload.get("user", payload)
+    assert isinstance(user_payload, dict)
+    user_id = cast(str, user_payload["id"])
+    user_service = domain.app.extensions["auth_manager"].user_service
+    assert user_service.get_by_oidc(issuer, "alice-subject").id == user_id
+    assert user_service.get_by_oidc("https://identity.example.test", "alice-456").id == user_id
+
+
+def test_user_update_links_and_unlinks_oidc_idempotently(domain: Domain) -> None:
+    """OIDC link updates are idempotent and allow removing the final identity."""
+    issuer = "http://dex.example.test/dex"
+    initial = {"issuer": issuer, "subject": "initial-subject"}
+    added = {"issuer": issuer, "subject": "added-subject"}
+    created = domain.client.post(
+        domain.path("users"),
+        headers=domain.headers,
+        json={"username": "oidc-update", "oidc_links": [initial]},
+    )
+    assert created.status_code == 201
+    payload = json_object(created)
+    user_payload = payload.get("user", payload)
+    assert isinstance(user_payload, dict)
+    user_id = cast(str, user_payload["id"])
+
+    update_path = domain.path(f"users/{user_id}")
+    changes = {"link_oidc": [added], "unlink_oidc": [initial]}
+    assert domain.client.patch(update_path, headers=domain.headers, json=changes).status_code == 200
+    assert domain.client.patch(update_path, headers=domain.headers, json=changes).status_code == 200
+    user_service = domain.app.extensions["auth_manager"].user_service
+    assert user_service.get_by_oidc(*initial.values()) is None
+    assert user_service.get_by_oidc(*added.values()).id == user_id
+
+    removed = domain.client.patch(
+        update_path,
+        headers=domain.headers,
+        json={"unlink_oidc": [added]},
+    )
+    assert removed.status_code == 200
+    assert user_service.get_by_oidc(*added.values()) is None
+
+
+def test_oidc_identity_conflict_rolls_back_user_creation(domain: Domain) -> None:
+    """An OIDC identity cannot be assigned to two users or partially create one."""
+    identity = {"issuer": "http://dex.example.test/dex", "subject": "unique-subject"}
+    first = domain.client.post(
+        domain.path("users"),
+        headers=domain.headers,
+        json={"username": "oidc-owner", "oidc_links": [identity]},
+    )
+    assert first.status_code == 201
+
+    conflict = domain.client.post(
+        domain.path("users"),
+        headers=domain.headers,
+        json={"username": "oidc-conflict", "oidc_links": [identity]},
+    )
+
+    assert conflict.status_code == 409
+    assert UserRepository(
+        domain.app.extensions["database_config"].session()
+    ).by_username("oidc-conflict") is None
+    assert domain.app.extensions["auth_manager"].user_service.get_by_oidc(
+        identity["issuer"], identity["subject"]
+    ).username == "oidc-owner"
+
+
+def test_oidc_patch_rejects_identity_in_both_operations(domain: Domain) -> None:
+    """One patch cannot link and unlink the same OIDC identity."""
+    response = domain.client.patch(
+        domain.path(f"users/{domain.user_id}"),
+        headers=domain.headers,
+        json={
+            "link_oidc": [{"issuer": "http://dex.example.test/dex", "subject": "same"}],
+            "unlink_oidc": [{"issuer": "http://dex.example.test/dex", "subject": "same"}],
+        },
+    )
+
+    assert response.status_code == 400
+
+
 @pytest.mark.parametrize("operation", ["user-delete", "user-disable", "device-delete",
                                       "device-block", "device-key", "profile-delete",
                                       "profile-policy", "unassign", "lease-revoke"])

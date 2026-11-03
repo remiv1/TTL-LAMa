@@ -13,6 +13,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy.sql.elements import ColumnElement
 
 from api.common.db_objects.users import User
+from api.common.db_objects.oidc import OIDCUser
 from api.common.db_objects.devices import Device
 from api.common.db_objects.leases import Lease
 from api.common.db_objects.profiles import ProfileUser
@@ -99,6 +100,49 @@ class UserRepository(Repository[User]):
                 auth_method=AuthMethod.INTERNAL.value, hash_password=password_hash
             ))
         self.revoke_sessions(user)
+
+    def link_oidc(self, user: User, issuer: str, subject: str) -> None:
+        """Link an OIDC identity to a user, unless it is already linked there.
+
+        :param user: The local user to link.
+        :type user: User
+        :param issuer: The OIDC issuer URL.
+        :type issuer: str
+        :param subject: The OIDC subject identifier.
+        :type subject: str
+        :raises ConflictError: If the identity belongs to another user.
+        """
+        identity = self.session.scalar(
+            select(OIDCUser).where(
+                OIDCUser.issuer == issuer,
+                OIDCUser.subject == subject,
+            )
+        )
+        if identity is not None:
+            if str(identity.user_id) != str(user.id):
+                raise ConflictError("OIDC identity is already linked to another user")
+            return
+        self.session.add(OIDCUser(user_id=user.id, issuer=issuer, subject=subject))
+
+    def unlink_oidc(self, user: User, issuer: str, subject: str) -> None:
+        """Unlink an OIDC identity from a user if the link exists.
+
+        :param user: The local user to unlink.
+        :type user: User
+        :param issuer: The OIDC issuer URL.
+        :type issuer: str
+        :param subject: The OIDC subject identifier.
+        :type subject: str
+        """
+        identity = self.session.scalar(
+            select(OIDCUser).where(
+                OIDCUser.user_id == str(user.id),
+                OIDCUser.issuer == issuer,
+                OIDCUser.subject == subject,
+            )
+        )
+        if identity is not None:
+            self.session.delete(identity)
 
     def set_last_login(self, user: User) -> None:
         """Record the current UTC time as the user's last successful login.

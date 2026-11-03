@@ -13,7 +13,7 @@ from uuid import UUID
 
 from argon2 import PasswordHasher
 from argon2.exceptions import InvalidHashError, VerificationError
-from sqlalchemy import inspect, select
+from sqlalchemy import inspect, select, update
 from sqlalchemy.orm import Session as ORMSession
 
 from api.common.db_objects import User, UserOIDCUser, UserCredentials
@@ -122,6 +122,130 @@ class UserService(ServiceMixin):
             )
         ).create()
         return True
+
+    def create_external_admin_if_oidc_empty(self, username: str) -> User | None:
+        """Create the initial external admin when no OIDC identity is linked.
+
+        An existing account with the configured username is returned unchanged.
+
+        :param username: The configured initial administrator username.
+        :type username: str
+        :return: The existing or newly created administrator, or ``None`` if an
+            OIDC identity is already linked.
+        :rtype: User | None
+        """
+        linked_identity = self.db_session.scalar(
+            select(UserOIDCUser.id).limit(1)
+        )
+        if linked_identity is not None:
+            return None
+
+        admin = self.get_by_username(username)
+        if admin is not None:
+            return admin
+
+        admin = User(
+            username=username,
+            enabled=True,
+            is_admin=True,
+        )
+        return self.add_user(admin).create()
+
+    def link_first_oidc_admin_identity(
+        self,
+        username: str,
+        issuer: str,
+        subject: str,
+    ) -> User | None:
+        """Link the first OIDC identity to the configured admin account.
+
+        A no-op update locks the configured user row before checking the OIDC
+        table, serializing first-link attempts across database sessions.
+
+        :param username: The configured initial administrator username.
+        :type username: str
+        :param issuer: The active OIDC issuer URL.
+        :type issuer: str
+        :param subject: The validated OIDC subject claim.
+        :type subject: str
+        :return: The linked user, or ``None`` if another identity is already linked
+            or the configured admin account is missing.
+        :rtype: User | None
+        """
+        self.rollback()
+        if self.db_session.get_bind().dialect.name == "sqlite":
+            self.db_session.execute(
+                update(User)
+                .where(User.username == username)
+                .values(username=username)
+            )
+            admin = self.get_by_username(username)
+        else:
+            admin = self.db_session.execute(
+                select(User)
+                .where(User.username == username)
+                .with_for_update()
+            ).scalar_one_or_none()
+        if admin is None:
+            self.rollback()
+            return None
+
+        linked_user = self.get_by_oidc(issuer, subject)
+        if linked_user is not None:
+            self.commit()
+            return linked_user
+
+        linked_identity = self.db_session.scalar(
+            select(UserOIDCUser.id).limit(1)
+        )
+        if linked_identity is not None:
+            self.rollback()
+            return None
+
+        UserRepository(self.db_session).link_oidc(admin, issuer, subject)
+        self.commit()
+        return admin
+
+    def create_initial_oidc_admin(
+        self,
+        username: str,
+        issuer: str,
+        subject: str,
+    ) -> User:
+        """Create or link the configured initial administrator for OIDC.
+
+        :param username: The username of the initial administrator.
+        :type username: str
+        :param issuer: The configured OIDC issuer URL.
+        :type issuer: str
+        :param subject: The configured OIDC subject identifier.
+        :type subject: str
+        :return: The created or existing administrator.
+        :rtype: User
+        :raises ConflictError: If the OIDC identity belongs to another user.
+        """
+        admin = self.get_by_username(username)
+        linked_user = self.get_by_oidc(issuer, subject)
+        if linked_user is not None and (
+            admin is None or str(linked_user.id) != str(admin.id)
+        ):
+            self.rollback()
+            raise ConflictError(
+                "The configured initial administrator OIDC identity belongs to another user"
+            )
+
+        if admin is None:
+            admin = User(
+                username=username,
+                enabled=True,
+                is_admin=True,
+                oidc_users=[UserOIDCUser(issuer=issuer, subject=subject)],
+            )
+            return self.add_user(admin).create()
+
+        UserRepository(self.db_session).link_oidc(admin, issuer, subject)
+        self.commit()
+        return admin
 
     def get_user(self) -> User:
         """Retrieve the currently added user.
