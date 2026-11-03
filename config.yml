@@ -4,28 +4,16 @@ app:
   debug: true
   environment: development
   log_level: info
-  secret_key_file: /run/secrets/flask_secret_key
 auth:
-  admin:
-    password: admin
-    username: admin
-  allowed_origins: []
-  cookie_name: ttl-lama_session
-  mode: internal
+  mode: external
   oidc:
-    client_id: your_client_id
-    client_secret_file: /run/secrets/oidc_client_secret
-    issuer: your_issuer_url
-    redirect_uri: /auth/callback
-  password_hasher:
-    hash_len: 32
-    memory_cost: 65536
-    parallelism: 4
-    salt_len: 16
-    time_cost: 3
-  success_redirect: your_auth_success_redirect_url
+    issuer: http://127.0.0.1:5556/dex
+    client_id: ttl-lama-dex
+    client_secret: ttl-lama-test-secret
+    redirect_uri: http://127.0.0.1:8080/auth/callback
+  success_redirect: http://127.0.0.1:8080/
 database:
-  path: /data/ttl-lama.db
+  path: /data/ttl-lama2.db
   schema: public
   type: sqlite
 security:

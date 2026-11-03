@@ -1,4 +1,4 @@
-issuer: http://dex:5556/dex
+issuer: http://127.0.0.1:5556/dex
 
 storage:
   type: sqlite3
@@ -32,12 +32,12 @@ oauth2:
 staticClients:
 - id: ttl-lama-dex
   redirectURIs:
-  - 'http://127.0.0.1:5555/auth/callback'
+  - 'http://127.0.0.1:8080/auth/callback'
   - '/dex/device/callback'
   postLogoutRedirectURIs:
-  - 'http://127.0.0.1:5555/'
-  backchannelLogoutURI: 'http://127.0.0.1:5555/backchannel-logout'
-  name: 'Example App'
+  - 'http://127.0.0.1:8080/'
+  backchannelLogoutURI: 'http://127.0.0.1:8080/backchannel-logout'
+  name: 'ttl-lama-dex'
   secret: ttl-lama-test-secret
 
 enablePasswordDB: true

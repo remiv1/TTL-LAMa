@@ -172,7 +172,7 @@ check_oidc_provider() {
 
 launch_tests() {
   # Launch only the test container with the requested pytest selection.
-  local -a pytest_args=("-v" "--color=yes" "-ra" "-p" "no:cacheprovider")
+  local -a pytest_args=("-v" "--color=yes" "-ra" "-p" "no:cacheprovider" "--cov=api" "--cov=auth" "--cov-report=term-missing")
   local -a compose_args=(run --rm --no-deps)
   pytest_args+=("${TEST_SELECTORS[@]}")
   if [[ "$WITHOUT_OIDC" == true ]]; then
@@ -182,7 +182,7 @@ launch_tests() {
     compose_args+=(-e "TTL_LAMA_TEST_DATABASES=sqlite")
   fi
   podman compose -f "$COMPOSE_FILE" "${compose_args[@]}" tests \
-    python -m pytest "${pytest_args[@]}"
+    env COVERAGE_FILE=/tmp/ttl-lama-coverage python -m pytest "${pytest_args[@]}"
   code=$?
   if (( code != 0 )); then
     echo "Erreur lors du lancement des tests. Voir $LOG_FILE pour les détails."

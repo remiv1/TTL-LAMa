@@ -18,6 +18,8 @@ English | [Français](./docs/README.fr.md)
 [![HTMX](https://img.shields.io/badge/HTMX-HTML_Over_The_Wire-FFD901?logo=htmx&logoColor=white)](https://htmx.org/)
 [![NPM](https://img.shields.io/badge/NPM-Package_Manager-FFD901?logo=npm&logoColor=white)](https://www.npmjs.com/)
 
+![Coverage](https://img.shields.io/badge/Coverage-91%25-yellow)
+
 [![Icone](./docs/img/logo_plain.svg)](./docs/img/logo_plain.svg)
 
 > **Time-To-Live Lease Access Manager**
