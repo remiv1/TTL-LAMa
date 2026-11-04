@@ -17,7 +17,7 @@ Chaque grande ligne regroupe un chantier, chaque sous-tâche un résultat à obt
 
 ### 1.1 Définir le modèle de menace
 
-- [ ] Lister les actifs à protéger : identifiants, sessions, clés publiques, configuration, baux et accès réseau.
+- [x] Lister les actifs à protéger : identifiants, sessions, clés publiques, configuration, baux et accès réseau.
   - [x] Transformer les identifiants utilisateurs en UUID.
   - [x] Données sensibles identifiées :
     - identifiant & mot de passe
@@ -27,10 +27,10 @@ Chaque grande ligne regroupe un chantier, chaque sous-tâche un résultat à obt
     - appartenances à des groupes
   - [x] Créer une table de conservation des clés publiques et/ou privées.
   - [x] Créer une table pour la conservation des baux.
-- [ ] Décrire les acteurs, les frontières de confiance et les interfaces exposées.
-- [ ] Recenser les menaces liées à l’authentification, à l’autorisation, aux secrets, au conteneur et au backend réseau.
-- [ ] Associer à chaque menace une mesure de réduction et un risque résiduel accepté.
-- [ ] Vérifier que le modèle est cohérent avec [docs/security.fr.md](docs/security.fr.md).
+- [x] Décrire les acteurs, les frontières de confiance et les interfaces exposées.
+- [x] Recenser les menaces liées à l’authentification, à l’autorisation, aux secrets, au conteneur et au backend réseau.
+- [x] Associer à chaque menace une mesure de réduction et un risque résiduel accepté.
+- [x] Vérifier que le modèle est cohérent avec [docs/security.fr.md](docs/security.fr.md).
 
 ### 1.2 Définir les concepts métier
 

@@ -22,6 +22,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     sqlite3 \
+    supervisor \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /opt/ttl-lama
@@ -30,6 +31,11 @@ COPY src/requirements.txt /opt/ttl-lama/requirements.txt
 RUN pip install --no-cache-dir -r /opt/ttl-lama/requirements.txt
 
 COPY src/ /opt/ttl-lama/src/
+
+RUN chmod +x \
+    /opt/ttl-lama/src/entrypoint.sh \
+    /opt/ttl-lama/src/start-api.sh
+
 COPY --from=web-assets /build/src/api/web/static/css/main.css /opt/ttl-lama/src/api/web/static/css/main.css
 COPY --from=web-assets /build/src/api/web/static/js/htmx.min.js /opt/ttl-lama/src/api/web/static/js/htmx.min.js
 COPY --from=web-assets /build/src/api/web/static/fonts/ /opt/ttl-lama/src/api/web/static/fonts/

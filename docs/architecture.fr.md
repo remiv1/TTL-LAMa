@@ -161,3 +161,310 @@ ttl-lama/
 ```
 
 Il s’agit d’un découpage logique au sein d’une application unique déployable, et non d’une architecture en microservices.
+
+## Gestion dynamique de WireGuard et expiration des baux
+
+Cette section décrit les choix structuraux retenus pour l'intégration de WireGuard et la gestion du cycle de vie des baux dans TTL-LAMa.
+
+TTL-LAMa reste responsable des **baux d'accès**, de leur expiration et de leur révocation. WireGuard constitue le premier backend réseau, mais sa configuration d'infrastructure reste sous le contrôle de l'opérateur. 【1-a68036】
+
+### Principes
+
+L'intégration WireGuard repose sur les principes suivants :
+
+- la configuration de base de l'interface WireGuard appartient à l'opérateur ;
+- TTL-LAMa ne génère pas et ne remplace pas la configuration complète de l'interface ;
+- les peers associés aux baux sont ajoutés et supprimés dynamiquement ;
+- la base TTL-LAMa constitue la source de vérité concernant les accès qui doivent être actifs ;
+- l'état de WireGuard est un état matérialisé dérivé des baux actifs ;
+- les opérations d'ajout, de révocation et de réconciliation doivent être idempotentes.
+
+Cette séparation permet à TTL-LAMa de gérer le cycle de vie des accès sans devenir une interface générale d'administration de WireGuard.
+
+### Configuration WireGuard
+
+L'opérateur configure l'interface WireGuard indépendamment de TTL-LAMa.
+
+Par exemple :
+
+```ini
+[Interface]
+Address = 10.42.0.1/24
+ListenPort = 51820
+PrivateKey = ...
+```
+
+Cette configuration est persistante et définit l'infrastructure du VPN. Les peers dynamiques ne sont pas persistés dans cette configuration par TTL-LAMa.
+
+### Gestion dynamique des peers
+
+Lorsqu'un bail devient actif, le backend WireGuard matérialise l'accès correspondant directement dans l'interface active. Une opération équivalente peut être réalisée avec :
+
+```bash
+wg set wg0 \
+peer <PUBLIC_KEY> \
+allowed-ips <VPN_ADDRESS>/32
+```
+
+Lorsqu'un bail expire ou est révoqué, le peer correspondant est supprimé :
+
+```bash
+wg set wg0 \
+peer <PUBLIC_KEY> \
+remove
+```
+
+L'interface WireGuard n'a donc pas besoin d'être redémarrée à chaque modification d'un bail.
+Conceptuellement :
+
+```text
+Lease ACTIVE
+      |
+      v
+WireGuard backend
+|
+      v
+peer présent dans wg0
+ 
+ 
+Lease EXPIRED / REVOKED
+      |
+      v
+WireGuard backend
+|
+      v
+peer absent de wg0
+```
+
+### Source de vérité
+
+WireGuard ne constitue pas une base de données des accès. L'état désiré est déterminé à partir des baux TTL-LAMa :
+
+```SQL
+desired_peers =
+  leases
+  WHERE status = ACTIVE
+  AND expires_at > now()
+```
+
+La persistance TTL-LAMa reste donc la source de vérité.
+Cela permet notamment de reconstruire entièrement l'état dynamique de WireGuard après un redémarrage.
+
+### Réconciliation des peers dynamiques
+
+Un redémarrage du serveur peut provoquer la disparition des peers qui avaient été ajoutés dynamiquement à WireGuard. TTL-LAMa dispose donc d'un mécanisme de réconciliation permettant de reconstruire l'état attendu à partir des baux persistés.
+
+La commande :
+
+```bash
+ttlama sync
+```
+
+déclenche cette réconciliation via l'API TTL-LAMa.
+Conceptuellement :
+
+```text
+Base TTL-LAMa
+      |
+      | baux actuellement valides
+      v
+État désiré
+      |
++---------------------+
+|                     |
+v                     v
+Peers manquants       Peers indésirables
+|                     |
+v                     v
+ADD                   REMOVE
+\                    /
+ +--------+---------+
+          |
+          v
+         wg0
+```
+
+La réconciliation est volontairement bidirectionnelle.
+Elle permet :
+
+- de recréer les peers manquants après un redémarrage ;
+- de supprimer un peer qui ne correspond plus à un bail valide ;
+- de corriger une divergence entre l'état persistant de TTL-LAMa et l'état effectif du backend.
+
+La réconciliation constitue ainsi un mécanisme de convergence vers l'état désiré, et non seulement un mécanisme de restauration après démarrage.
+
+### Expiration des baux
+
+La réconciliation ne remplace pas la gestion normale de l'expiration. TTL-LAMa doit également supprimer l'accès réseau lorsque le terme du bail est atteint, conformément à son objectif d'expiration et de révocation automatiques.
+
+Deux mécanismes complémentaires existent donc :
+
+```texte
+                   TTL-LAMa
+                       |
+           +-----------+-----------+
+           |                       |
+           v                       v
+      Scheduler              Réconciliation
+           |                       |
+    expiration normale        convergence
+       des baux              de l'état réseau
+           |                       |
+           +-----------+-----------+
+                       |
+                       v
+                Backend WireGuard
+```
+
+### Scheduler
+
+TTL-LAMa étant une application synchrone, l'expiration est prise en charge par un processus dédié de scheduling. Ce processus peut utiliser APScheduler ou un mécanisme équivalent. Il est distinct des workers de l'API afin d'éviter qu'un scheduler soit créé dans chaque worker HTTP.
+
+L'architecture du conteneur devient :
+
+```text
+Conteneur TTL-LAMa
+|
++-- superviseur (PID 1)
+|
++-- application API
+|   |
+|   +-- worker 1
+|   +-- worker 2
+|   +-- ...
+|   +-- worker N
+|
++-- scheduler
+```
+
+Il existe toujours un seul scheduler logique, quel que soit le nombre de workers utilisés par l'API.
+
+### Reconstruction du scheduler
+
+Les tâches du scheduler ne constituent pas une source de vérité. À chaque démarrage ou redémarrage du processus scheduler, TTL-LAMa reconstruit les échéances à partir de sa base persistante.
+
+Le démarrage suit conceptuellement la séquence suivante :
+
+```texte
+scheduler start
+      |
+      v
+charger les baux actifs
+      |
+      +--> expires_at <= now()
+      |        |
+      |        v
+      |   expiration immédiate
+      |
+      +--> expires_at > now()
+               |
+               v
+          programmation
+             du job
+```
+
+Une perte de l'état interne du scheduler n'entraîne donc pas une perte des échéances.
+
+L'information autoritative reste `Lease.expires_at` et non le job enregistré dans le scheduleur.
+
+### Traitement d'une échéance
+
+Lorsqu'un job se déclenche, il ne doit pas considérer aveuglément que le bail doit être supprimé. Le bail est relu depuis la persistence et son état courant est vérifié.
+
+Conceptuellement :
+
+```texte
+job scheduler
+     |
+     v
+reload lease
+     |
+     +-- absent --------------------> no-op
+     |
+     +-- déjà révoqué/expiré ------> no-op
+     |
+     +-- nouvelle expiration
+     |   dans le futur ------------> no-op / reschedule
+     |
+     +-- ACTIVE et arrivé à terme
+             |
+             v
+          expire()
+             |
+             v
+       backend.revoke()
+```
+
+Le scheduler agit donc comme un déclencheur. La décision finale appartient toujours au modèle métier et à l'état persistant du bail.
+
+### Idempotence et concurrence
+
+L'expiration et la révocation doivent supporter plusieurs déclenchements sans produire d'état incohérent. Par exemple, une révocation manuelle peut avoir lieu au même moment que l'expiration programmée. La transition doit donc être protégée au niveau de la persistence.
+
+Conceptuellement :
+
+```SQL
+UPDATE leases
+SET status = 'expired'
+WHERE id = :lease_id
+  AND status = 'active'
+  AND expires_at <= :now;
+```
+
+Si la transition a effectivement eu lieu, le backend est révoqué. Dans le cas contraire, aucune nouvelle révocation n'est nécessaire. Les opérations du backend WireGuard doivent également être conçues comme idempotentes : demander la suppression d'un peer déjà absent ne doit pas compromettre le cycle de réconciliation.
+
+### Supervision des processus
+
+L'API et le scheduler appartiennent au même conteneur mais s'exécutent dans des processus distincts. Le processus PID 1 du conteneur assure leur supervision.
+
+Un crash du scheduler doit provoquer uniquement son redémarrage :
+
+```texte
+scheduler
+    |
+  crash
+    |
+    v
+superviseur
+    |
+    v
+restart scheduler
+    |
+    v
+reconstruction depuis la DB
+```
+
+Le redémarrage du conteneur complet n'est donc pas nécessaire pour récupérer d'une panne isolée du scheduler. Après son redémarrage, celui-ci reconstruit ses tâches depuis les données persistantes et traite immédiatement les éventuelles échéances dépassées.
+
+### Surveillance des processus
+
+Le fonctionnement de l'API seul ne suffit pas à considérer TTL-LAMa comme pleinement opérationnel.
+
+Le déploiement doit également permettre de détecter une défaillance durable du scheduler, car une API fonctionnelle accompagnée d'un scheduler arrêté empêcherait l'expiration automatique des accès.
+
+Un heartbeat ou une information équivalente peut être utilisé pour exposer l'état du scheduler au mécanisme de healthcheck du conteneur.
+
+### Responsabilités
+
+Les responsabilités peuvent finalement être résumées ainsi :
+
+| Composant | Responsabilité |
+| --- | --- |
+| Persistence TTL-LAMa | Source de vérité des baux et de leurs échéances |
+| API | Création, modification et révocation des baux |
+| Scheduler | Déclenchement des expirations à leur échéance |
+| Backend WireGuard | Matérialisation et suppression des accès réseau |
+| ttlama sync | Déclenchement de la réconciliation via l'API |
+| Réconciliateur | Convergence entre les baux valides et l'état du backend |
+| Superviseur | Surveillance et relance des processus internes au conteneur |
+
+### Invariant principal
+
+L'ensemble de cette architecture vise à maintenir l'invariant suivant :
+
+> Un accès réseau matérialisé dans un backend ne doit exister que s'il correspond à un bail TTL-LAMa actuellement valide.
+
+Le scheduler assure le fonctionnement normal de cet invariant dans le temps.
+La réconciliation constitue le mécanisme de récupération et de convergence en cas de redémarrage, de panne ou de divergence.
+
+La persistence TTL-LAMa reste dans tous les cas la source de vérité, tandis que le backend réseau ne représente que la matérialisation de l'état désiré.
