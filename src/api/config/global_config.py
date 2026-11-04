@@ -20,7 +20,7 @@ import re
 import stat
 import tempfile
 from pathlib import Path
-from typing import cast
+from typing import TypeGuard, cast
 
 import yaml
 from pydantic import BaseModel, ValidationError
@@ -164,10 +164,17 @@ def unchanged_secret_paths(configuration: object) -> list[str]:
 def _value_at_path(configuration: dict[str, object], path: tuple[str, ...]) -> object:
     value: object = configuration
     for key in path:
-        if not isinstance(value, dict):
+        if not _is_string_keyed_mapping(value):
             return None
-        value = cast(dict[str, object], value).get(key)
+        value = value.get(key)
     return value
+
+
+def _is_string_keyed_mapping(value: object) -> TypeGuard[dict[str, object]]:
+    if not isinstance(value, dict):
+        return False
+    mapping = cast(dict[object, object], value)
+    return all(isinstance(key, str) for key in mapping)
 
 
 def write_configuration(configuration: dict[str, object]) -> None:
@@ -193,11 +200,12 @@ def write_configuration(configuration: dict[str, object]) -> None:
             temporary_file.flush()
             os.fsync(temporary_file.fileno())
         os.replace(temporary_path, path)
-        directory_descriptor = os.open(path.parent, os.O_RDONLY | os.O_DIRECTORY)
-        try:
-            os.fsync(directory_descriptor)
-        finally:
-            os.close(directory_descriptor)
+        if os.name.startswith("posix"):
+            directory_descriptor = os.open(path.parent, os.O_RDONLY)
+            try:
+                os.fsync(directory_descriptor)
+            finally:
+                os.close(directory_descriptor)
     except (OSError, UnicodeError, yaml.YAMLError) as error:
         if temporary_path is not None:
             temporary_path.unlink(missing_ok=True)
