@@ -44,7 +44,7 @@ class Settings(YamlSettingsBase):
         client secret.
         - ``OIDC_REDIRECT_URI``: External identity provider redirect URI.
         - ``AUTH_SUCCESS_REDIRECT``: URL to redirect to after successful authentication.
-        - ``ACCESS_PROFILES_FILE``: Path to the access profiles file.
+        - ``BACKEND_CONFIG_FILE``: Path to the VPN backend configuration file.
         - ``AUTH_COOKIE_NAME``: Authentication cookie name.
         - ``SERVER_HOST``: Server host address.
         - ``SERVER_PORT``: Server port number.
@@ -76,7 +76,7 @@ class Settings(YamlSettingsBase):
     OIDC_CLIENT_SECRET_FILE: Path | None = Field(default=None, repr=False)
     OIDC_REDIRECT_URI: str = ""
     AUTH_SUCCESS_REDIRECT: str = ""
-    ACCESS_PROFILES_FILE: Path | None = None
+    BACKEND_CONFIG_FILE: Path | None = None
     AUTH_COOKIE_NAME: str = "ttl-lama_session"
     SERVER_HOST: str = "0.0.0.0"
     SERVER_PORT: int = Field(default=8080, ge=1, le=65535)
@@ -132,8 +132,8 @@ class Settings(YamlSettingsBase):
                 "session_cookie_path": "SESSION_COOKIE_PATH",
                 "session_lifetime": "SESSION_LIFETIME",
             },
-            "access_profiles": {
-                "file": "ACCESS_PROFILES_FILE",
+            "backend_config": {
+                "file": "BACKEND_CONFIG_FILE",
             },
         }
         for section_name, key_mapping in mappings.items():

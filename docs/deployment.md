@@ -41,7 +41,7 @@ Gunicorn preloads the application in its master process: table creation, profile
 
 Replace `/path/to/config.yml` with the absolute path to your configuration file. Omit its mount to use the YAML file embedded in the image. The named `ttl-lama-data` volume preserves the SQLite database and generated Flask key across container restarts. To stop and remove the container without removing its data, run `podman stop ttl-lama` followed by `podman rm ttl-lama`.
 
-The administrator CLI can update the YAML selected by `TTL_LAMA_CONFIG_FILE` with `ttlama global-config apply --file <candidate.yml>`. Mount that file as a persistent volume if updates must survive container replacement; otherwise, the command warns that the change may be lost. Gunicorn preloads application settings at startup, so a successful update reports that an external container restart is required. Environment variables still take precedence over YAML. This command does not modify `access-profiles.yml` or profile policies in the database.
+The administrator CLI can update the YAML selected by `TTL_LAMA_CONFIG_FILE` with `ttlama global-config apply --file <candidate.yml>`. Mount that file as a persistent volume if updates must survive container replacement; otherwise, the command warns that the change may be lost. Gunicorn preloads application settings at startup, so a successful update reports that an external container restart is required. Environment variables still take precedence over YAML. This command does not modify `backend_config.yml` or persisted profile policies in the database.
 
 In `external` mode, the first OIDC login for the account prepared at startup links its identity to the local account, either through the browser callback or the `--distant` device flow. The `preferred_username` claim must exactly match `auth.admin.username`, and `sub` must be present in the validated ID token. The `openid profile` scopes are requested for this purpose. No email matching is performed. Once the first identity is linked, all logins require the exact issuer and subject pair.
 
@@ -106,8 +106,8 @@ security:
   session_cookie_path: /
   session_lifetime: 3600
 
-access_profiles:
-  file: /etc/ttl-lama/access-profiles.yml
+backend_config:
+  file: /etc/ttl-lama/backend_config.yml
 ```
 
 ### OIDC CLI Sign-In
@@ -142,28 +142,22 @@ Settings are read at startup. Changing them does not alter passwords already sto
 
 Supported database engines are `sqlite`, `postgresql`, `mariadb`, and `mysql`. SQLite is the standalone default. An external database requires `database.host`, `database.name`, `database.user`, and `database.password_file`; `database.port` is optional and defaults to the engine's standard port ; `database.schema` is also required for some engines like postgresql. `TTL_LAMA_...` environment variables remain available as overrides; for example, `TTL_LAMA_AUTH_MODE` overrides `auth.mode`.
 
-Access profiles are validated separately in `/etc/ttl-lama/access-profiles.yml`:
+Backend interfaces are validated separately in `/etc/ttl-lama/backend_config.yml` and seed profile policies on first startup:
 
 ```yaml
-profiles:
-  admin:
-    default_duration: 1h
-    maximum_duration: 8h
-    networks:
-      - 10.0.0.0/8
-  user:
-    default_duration: 8h
-    maximum_duration: 24h
-    networks:
-      - 192.168.0.0/16
-  maintenance:
-    default_duration: 30m
-    maximum_duration: 2h
-    networks:
-      - 192.168.10.10/32
+backend:
+  wireguard:
+    interfaces:
+      - name: wg0
+        description: User access
+        networks:
+          - 10.0.0.0/8
+        public_key: your_public_key_here
+        default_duration: 8h
+        maximum_duration: 24h
 ```
 
-Durations accept `d`, `h`, `m`, and `s` units. The default duration cannot exceed the maximum, and every profile must specify at least one network.
+The interface description becomes the profile name and its `name` becomes `lease_target`. Durations accept `d`, `h`, `m`, and `s` units. The default duration cannot exceed the maximum, and every interface must specify at least one network.
 
 ## Persistence Options
 
@@ -204,13 +198,14 @@ database:
   password_file: /run/secrets/database_password
 ```
 
-Mounted secret contents are read at startup. In production, the Flask key must contain at least 32 characters and cookies must be marked `Secure`. Authentication is always required. The three profiles in `access-profiles.yml` are examples to adapt to your deployment's networks and durations.
+Mounted secret contents are read at startup. In production, the Flask key must contain at least 32 characters and cookies must be marked `Secure`. Authentication is always required. Adapt the interfaces in `backend_config.yml` to your deployment's networks and durations.
 
 ## Container Paths
 
 - `/opt/ttl-lama/`: Python source and WSGI server;
 - `/etc/ttl-lama/config.yml`: base YAML configuration embedded in the image and replaceable with a read-only mount;
-- `/etc/ttl-lama/access-profiles.yml`: base access profiles embedded in the image and replaceable with a read-only mount;
+- `/etc/ttl-lama/backend_config.yml`: backend interfaces embedded in the image and replaceable with a read-only mount;
+- `/etc/ttl-lama/ssh_config.yml`: SSH transport settings read when the scheduler opens a connection;
 - `/data/`: SQLite database, persistent data, and generated Flask key when no secret is mounted;
 - `/run/secrets/`: mounted secrets, kept out of the image.
 

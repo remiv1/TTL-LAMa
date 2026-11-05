@@ -1,0 +1,25 @@
+backend:
+  wireguard:
+    interfaces:
+      - name: wg0
+        description: Main WireGuard interface
+        networks:
+          - 10.0.0.1/24
+        public_key: your_public_key_here
+        default_duration: 8h
+        maximum_duration: 24h
+      - name: wg1
+        description: Administrative WireGuard interface
+        networks:
+          - 10.100.0.1/24
+          - 10.200.0.1/24
+        public_key: your_public_key_here
+        default_duration: 1h
+        maximum_duration: 8h
+      - name: wg2
+        description: Maintenance WireGuard interface
+        networks:
+          - 10.200.0.1/24
+        public_key: your_public_key_here
+        default_duration: 30m
+        maximum_duration: 90m

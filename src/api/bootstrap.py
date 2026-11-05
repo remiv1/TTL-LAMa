@@ -25,6 +25,7 @@ from sqlalchemy.orm import Session
 
 from api.config import (
     AccessProfiles,
+    BackendConfig,
     DatabaseConfig,
     DatabaseSettings,
     FlaskSettings,
@@ -266,7 +267,8 @@ def create_app(
     if flask_settings.AUTH_MODE == "external":
         _register_oidc_client(app, flask_settings)
 
-    profiles = AccessProfiles.from_file(flask_settings.ACCESS_PROFILES_FILE)
+    backend_config = BackendConfig.from_file(flask_settings.BACKEND_CONFIG_FILE)
+    profiles = backend_config.access_profiles if backend_config is not None else AccessProfiles()
     database = DatabaseConfig(database_settings)
     database.initialize()
     with database.session().begin():
@@ -278,7 +280,9 @@ def create_app(
         password_hasher_settings,
     )
     app.extensions["database_config"] = database
-    app.config["ACCESS_PROFILES"] = profiles.profiles
+    app.config["BACKEND_LEASE_TARGETS"] = (
+        backend_config.lease_targets if backend_config is not None else None
+    )
     _register_blueprints(app)
     _register_security_headers(app, flask_settings)
     _register_database_teardown(app, database)

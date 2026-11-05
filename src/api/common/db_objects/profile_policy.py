@@ -33,6 +33,11 @@ class ProfilePolicy(Base):
         nullable=False,
         comment="The maximum duration for the profile policy",
     )
+    lease_target: Mapped[str] = mapped_column(
+        String(255),
+        nullable=False,
+        comment="The backend target that receives leases for this profile policy",
+    )
     networks: Mapped[list[str]] = mapped_column(
         JSON,
         nullable=False,

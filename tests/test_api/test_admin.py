@@ -30,6 +30,7 @@ PREFIX = "/api/v1/admin"
 POLICY = {
     "default_duration": "1h",
     "maximum_duration": "8h",
+    "lease_target": "wg0",
     "networks": ["10.0.0.0/24"],
 }
 

@@ -41,7 +41,7 @@ Gunicorn précharge l’application dans son processus maître : la création de
 
 Remplacez `/chemin/vers/config.yml` par le chemin absolu de votre configuration. Si vous souhaitez utiliser le fichier YAML intégré à l’image, omettez son montage. Le volume nommé `ttl-lama-data` conserve la base SQLite et la clé Flask générée entre les redémarrages. Pour arrêter puis supprimer le conteneur sans supprimer les données : `podman stop ttl-lama` puis `podman rm ttl-lama`.
 
-La CLI administrateur peut mettre à jour le YAML choisi par `TTL_LAMA_CONFIG_FILE` avec `ttlama global-config apply --file <candidat.yml>`. Montez ce fichier dans un volume persistant si les changements doivent survivre au remplacement du conteneur ; sinon, la commande avertit qu’ils pourraient être perdus. Gunicorn charge les réglages au démarrage : après une mise à jour réussie, un redémarrage externe du conteneur est requis. Les variables d’environnement restent prioritaires sur le YAML. Cette commande ne modifie ni `access-profiles.yml` ni les policies de profils en base.
+La CLI administrateur peut mettre à jour le YAML choisi par `TTL_LAMA_CONFIG_FILE` avec `ttlama global-config apply --file <candidat.yml>`. Montez ce fichier dans un volume persistant si les changements doivent survivre au remplacement du conteneur ; sinon, la commande avertit qu’ils pourraient être perdus. Gunicorn charge les réglages au démarrage : après une mise à jour réussie, un redémarrage externe du conteneur est requis. Les variables d’environnement restent prioritaires sur le YAML. Cette commande ne modifie ni `backend_config.yml` ni les policies de profils en base.
 
 En mode `external`, le premier login OIDC du compte préparé au démarrage associe son identité au compte local, via le callback navigateur ou le flux device `--distant`. Le claim `preferred_username` doit correspondre exactement à `auth.admin.username`, et `sub` doit être présent dans l’ID token validé. Les scopes `openid profile` sont demandés au fournisseur à cette fin. Aucun rapprochement par courriel n’est effectué. Une fois la première identité liée, tous les logins exigent la paire exacte issuer + subject.
 
@@ -106,8 +106,8 @@ security:
   session_cookie_path: /
   session_lifetime: 3600
 
-access_profiles:
-  file: /etc/ttl-lama/access-profiles.yml
+backend_config:
+  file: /etc/ttl-lama/backend_config.yml
 ```
 
 ### Connexion OIDC de la CLI
@@ -142,28 +142,22 @@ Les paramètres sont lus au démarrage. Leur modification ne change pas les mots
 
 Les moteurs pris en charge sont `sqlite`, `postgresql`, `mariadb` et `mysql`. SQLite est le choix autonome par défaut. Une base externe nécessite `database.host`, `database.name`, `database.user` et `database.password_file`; `database.port` est facultatif et utilise le port standard du moteur; `database.schema` est également requis pour certains moteurs comme postgresql. Les variables d’environnement préfixées par `TTL_LAMA_` restent disponibles pour les surcharges ; par exemple, `TTL_LAMA_AUTH_MODE` remplace `auth.mode`.
 
-Les profils d’accès sont validés séparément dans `/etc/ttl-lama/access-profiles.yml` :
+Les interfaces backend sont validées séparément dans `/etc/ttl-lama/backend_config.yml` et servent à initialiser les policies de profil au premier démarrage :
 
 ```yaml
-profiles:
-  admin:
-    default_duration: 1h
-    maximum_duration: 8h
-    networks:
-      - 10.0.0.0/8
-  user:
-    default_duration: 8h
-    maximum_duration: 24h
-    networks:
-      - 192.168.0.0/16
-  maintenance:
-    default_duration: 30m
-    maximum_duration: 2h
-    networks:
-      - 172.16.0.0/12
+backend:
+  wireguard:
+    interfaces:
+      - name: wg0
+        description: Accès utilisateur
+        networks:
+          - 10.0.0.0/8
+        public_key: your_public_key_here
+        default_duration: 8h
+        maximum_duration: 24h
 ```
 
-Les durées acceptent les unités `d`, `h`, `m` et `s`. La durée par défaut ne peut pas dépasser la durée maximale et chaque profil doit définir au moins un réseau.
+La description de l’interface devient le nom du profil et son champ `name` devient `lease_target`. Les durées acceptent les unités `d`, `h`, `m` et `s`. La durée par défaut ne peut pas dépasser la durée maximale et chaque interface doit définir au moins un réseau.
 
 ## Options de persistance
 
@@ -204,13 +198,14 @@ database:
   password_file: /run/secrets/database_password
 ```
 
-Le contenu des secrets montés est lu au démarrage. En production, la clé Flask doit contenir au moins 32 caractères et les cookies doivent être marqués `Secure`. L’authentification est toujours obligatoire. Les trois profils fournis dans `access-profiles.yml` sont des exemples à adapter aux réseaux et durées de votre déploiement.
+Le contenu des secrets montés est lu au démarrage. En production, la clé Flask doit contenir au moins 32 caractères et les cookies doivent être marqués `Secure`. L’authentification est toujours obligatoire. Adaptez les interfaces de `backend_config.yml` aux réseaux et durées de votre déploiement.
 
 ## Chemins dans le conteneur
 
 - `/opt/ttl-lama/` : code Python et serveur WSGI ;
 - `/etc/ttl-lama/config.yml` : configuration YAML de base intégrée à l’image, remplaçable par un montage en lecture seule ;
-- `/etc/ttl-lama/access-profiles.yml` : profils d’accès de base intégrés à l’image, remplaçables par un montage en lecture seule ;
+- `/etc/ttl-lama/backend_config.yml` : interfaces backend de base intégrées à l’image, remplaçables par un montage en lecture seule ;
+- `/etc/ttl-lama/ssh_config.yml` : paramètres SSH lus à l’ouverture d’une connexion par le scheduler ;
 - `/data/` : base SQLite, données persistantes et clé Flask générée en l’absence de secret monté ;
 - `/run/secrets/` : secrets montés, hors de l’image.
 

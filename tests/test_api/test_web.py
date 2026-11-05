@@ -175,6 +175,7 @@ def test_authenticated_profiles_page_shows_assigned_profiles_and_policy(
         AccessProfile(
             default_duration="1h",
             maximum_duration="4h",
+            lease_target="wg0",
             networks=[IPv4Network("10.20.0.0/16")],
         ),
     )
@@ -183,6 +184,7 @@ def test_authenticated_profiles_page_shows_assigned_profiles_and_policy(
         AccessProfile(
             default_duration="30m",
             maximum_duration="2h",
+            lease_target="wg0",
             networks=[IPv4Network("192.168.10.0/24")],
         ),
     )
@@ -247,6 +249,7 @@ def test_authenticated_leases_page_groups_statuses_and_limits_creation_options(
         AccessProfile(
             default_duration="1h",
             maximum_duration="4h",
+            lease_target="wg0",
             networks=[IPv4Network("10.30.0.0/16")],
         ),
     )
@@ -255,6 +258,7 @@ def test_authenticated_leases_page_groups_statuses_and_limits_creation_options(
         AccessProfile(
             default_duration="30m",
             maximum_duration="2h",
+            lease_target="wg0",
             networks=[IPv4Network("192.168.30.0/24")],
         ),
     )
@@ -343,6 +347,7 @@ def test_authenticated_lease_creation_and_revocation_use_csrf_protected_api(
         AccessProfile(
             default_duration="1h",
             maximum_duration="4h",
+            lease_target="wg0",
             networks=[IPv4Network("10.40.0.0/16")],
         ),
     )

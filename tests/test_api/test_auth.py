@@ -322,6 +322,7 @@ def test_current_user_overview_only_returns_owned_resources(app: Flask) -> None:
         AccessProfile(
             default_duration="1h",
             maximum_duration="8h",
+            lease_target="wg0",
             networks=[IPv4Network(address="10.0.0.0/24")],
         ),
     )
@@ -330,6 +331,7 @@ def test_current_user_overview_only_returns_owned_resources(app: Flask) -> None:
         AccessProfile(
             default_duration="1h",
             maximum_duration="8h",
+            lease_target="wg0",
             networks=[IPv4Network(address="192.168.0.0/24")],
         ),
     )
@@ -387,6 +389,7 @@ def test_current_user_overview_only_returns_owned_resources(app: Flask) -> None:
     assert profiles[0]["policy"] == {
         "default_duration": "1h",
         "maximum_duration": "8h",
+        "lease_target": "wg0",
         "networks": ["10.0.0.0/24"],
     }
 

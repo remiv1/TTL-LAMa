@@ -14,7 +14,8 @@ from sqlalchemy.sql.elements import ColumnElement
 
 from api.common.db_objects.devices import Device
 from api.common.db_objects.leases import Lease
-from api.common.db_objects.profiles import Profile, ProfileUser
+from api.common.db_objects.profiles import Profile as ProfileRecord
+from api.common.db_objects.profiles import ProfileUser as ProfileAssignment
 from api.common.db_objects.profile_policy import ProfilePolicy
 from api.common.db_objects.users import User
 from api.config.c_profiles import AccessProfile, AccessProfiles
@@ -22,7 +23,7 @@ from .base import ConflictError, Repository
 from .leases import LeaseRepository, utcnow
 
 
-class ProfileRepository(Repository[Profile]):
+class ProfileRepository(Repository[ProfileRecord]):
     """Manage profiles and policies in the caller's transaction.
     
     :param session: The SQLAlchemy session to use for database operations.
@@ -33,10 +34,10 @@ class ProfileRepository(Repository[Profile]):
     """
 
     def __init__(self, session: Session) -> None:
-        super().__init__(session, Profile)
+        super().__init__(session, ProfileRecord)
 
     def find(self, *, user: str | None = None, device: int | None = None,
-             lease: int | None = None) -> list[Profile]:
+             lease: int | None = None) -> list[ProfileRecord]:
         """Filter by active assignments or historical leases.
         
         :param user: Filter by user ID.
@@ -50,20 +51,20 @@ class ProfileRepository(Repository[Profile]):
         """
         conditions: list[ColumnElement[bool]] = []
         if user is not None:
-            conditions.append(Profile.id.in_(select(ProfileUser.profile_id).where(
-                ProfileUser.user_id == user, ProfileUser.revoked_at.is_(None)
+            conditions.append(ProfileRecord.id.in_(select(ProfileAssignment.profile_id).where(
+                ProfileAssignment.user_id == user, ProfileAssignment.revoked_at.is_(None)
             )))
         if device is not None or lease is not None:
-            related = select(ProfileUser.profile_id).join(Lease)
+            related = select(ProfileAssignment.profile_id).join(Lease)
             if device is not None:
                 # Device ownership alone does not grant a profile.
                 related = related.join(Device).where(Device.id == device)
             if lease is not None:
                 related = related.where(Lease.id == lease)
-            conditions.append(Profile.id.in_(related))
+            conditions.append(ProfileRecord.id.in_(related))
         return self.list(*conditions)
 
-    def policy(self, profile: Profile) -> AccessProfile | None:
+    def policy(self, profile: ProfileRecord) -> AccessProfile | None:
         """Read a policy, explicitly reporting legacy records with no policy.
         
         :param profile: The profile to read the policy for.
@@ -77,10 +78,11 @@ class ProfileRepository(Repository[Profile]):
         return AccessProfile.model_validate({
             "default_duration": stored.default_duration,
             "maximum_duration": stored.maximum_duration,
+            "lease_target": stored.lease_target,
             "networks": stored.networks,
         })
 
-    def set_policy(self, profile: Profile, policy: AccessProfile) -> None:
+    def set_policy(self, profile: ProfileRecord, policy: AccessProfile) -> None:
         """Replace a validated policy and revoke leases based on the old policy.
         
         :param profile: The profile to update the policy for.
@@ -96,6 +98,7 @@ class ProfileRepository(Repository[Profile]):
             self.session.add(stored)
         stored.default_duration = policy.default_duration
         stored.maximum_duration = policy.maximum_duration
+        stored.lease_target = policy.lease_target
         stored.networks = [str(network) for network in policy.networks]
         self.revoke_leases(profile)
 
@@ -108,11 +111,13 @@ class ProfileRepository(Repository[Profile]):
         :type identifier: int | None
         :raises ConflictError: If a profile with the same name already exists.
         """
-        existing = self.session.scalar(select(Profile).where(Profile.name == name))
+        existing = self.session.scalar(
+            select(ProfileRecord).where(ProfileRecord.name == name)
+        )
         if existing is not None and existing.id != identifier:
             raise ConflictError("Profile name already exists")
 
-    def create(self, name: str, policy: AccessProfile) -> Profile:
+    def create(self, name: str, policy: AccessProfile) -> ProfileRecord:
         """Create a named profile with its policy.
         
         :param name: The name of the profile to create.
@@ -123,21 +128,21 @@ class ProfileRepository(Repository[Profile]):
         :rtype: Profile
         """
         self.ensure_name(name)
-        profile = self.add(Profile(name=name))
+        profile = self.add(ProfileRecord(name=name))
         self.set_policy(profile, policy)
         return profile
 
-    def revoke_leases(self, profile: Profile) -> None:
+    def revoke_leases(self, profile: ProfileRecord) -> None:
         """Revoke access based on this profile.
         
         :param profile: The profile whose leases should be revoked.
         :type profile: Profile
         """
         LeaseRepository(self.session).revoke_matching(Lease.profile_user_id.in_(
-            select(ProfileUser.id).where(ProfileUser.profile_id == profile.id)
+            select(ProfileAssignment.id).where(ProfileAssignment.profile_id == profile.id)
         ))
 
-    def delete(self, profile: Profile) -> Profile:
+    def delete(self, profile: ProfileRecord) -> ProfileRecord:
         """Revoke a profile, its assignments and leases without erasing history.
         
         :param profile: The profile to revoke.
@@ -148,12 +153,12 @@ class ProfileRepository(Repository[Profile]):
         if profile.revoked_at is None:
             profile.revoked_at = utcnow()
         self.revoke_leases(profile)
-        self.session.execute(update(ProfileUser).where(
-            ProfileUser.profile_id == profile.id, ProfileUser.revoked_at.is_(None)
+        self.session.execute(update(ProfileAssignment).where(
+            ProfileAssignment.profile_id == profile.id, ProfileAssignment.revoked_at.is_(None)
         ).values(revoked_at=utcnow()))
         return profile
 
-    def assign(self, user: User, profile: Profile) -> ProfileUser:
+    def assign(self, user: User, profile: ProfileRecord) -> ProfileAssignment:
         """Assign idempotently, preserving previously revoked assignments.
         
         :param user: The user to assign the profile to.
@@ -165,17 +170,17 @@ class ProfileRepository(Repository[Profile]):
         """
         if not user.enabled or profile.revoked_at is not None:
             raise ConflictError("Cannot assign a disabled user or revoked profile")
-        assignment = self.session.scalar(select(ProfileUser).where(
-            ProfileUser.user_id == str(user.id), ProfileUser.profile_id == profile.id,
-            ProfileUser.revoked_at.is_(None)
+        assignment = self.session.scalar(select(ProfileAssignment).where(
+            ProfileAssignment.user_id == str(user.id), ProfileAssignment.profile_id == profile.id,
+            ProfileAssignment.revoked_at.is_(None)
         ).with_for_update())
         if assignment is None:
-            assignment = ProfileUser(user_id=str(user.id), profile_id=profile.id)
+            assignment = ProfileAssignment(user_id=str(user.id), profile_id=profile.id)
             self.session.add(assignment)
             self.session.flush()
         return assignment
 
-    def unassign(self, user: User, profile: Profile) -> None:
+    def unassign(self, user: User, profile: ProfileRecord) -> None:
         """Revoke all current assignments and their leases idempotently.
         
         :param user: The user whose profile assignments should be revoked.
@@ -183,13 +188,13 @@ class ProfileRepository(Repository[Profile]):
         :param profile: The profile to unassign from the user.
         :type profile: Profile
         """
-        assignments = select(ProfileUser.id).where(
-            ProfileUser.user_id == str(user.id), ProfileUser.profile_id == profile.id
+        assignments = select(ProfileAssignment.id).where(
+            ProfileAssignment.user_id == str(user.id), ProfileAssignment.profile_id == profile.id
         )
         LeaseRepository(self.session).revoke_matching(Lease.profile_user_id.in_(assignments))
-        self.session.execute(update(ProfileUser).where(
-            ProfileUser.user_id == str(user.id), ProfileUser.profile_id == profile.id,
-            ProfileUser.revoked_at.is_(None)
+        self.session.execute(update(ProfileAssignment).where(
+            ProfileAssignment.user_id == str(user.id), ProfileAssignment.profile_id == profile.id,
+            ProfileAssignment.revoked_at.is_(None)
         ).values(revoked_at=utcnow()))
 
     def import_missing(self, profiles: AccessProfiles) -> None:
@@ -199,7 +204,7 @@ class ProfileRepository(Repository[Profile]):
         :type profiles: AccessProfiles
         """
         for name, policy in profiles.profiles.items():
-            matches = self.list(Profile.name == name)
+            matches = self.list(ProfileRecord.name == name)
             if len(matches) > 1:
                 raise ConflictError(f"Ambiguous profile name: {name}")
             if not matches:

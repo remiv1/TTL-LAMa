@@ -1,0 +1,65 @@
+name: Tests
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      TERM: xterm-256color
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Podman Compose
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes podman podman-compose
+
+      - name: Configure Podman Compose socket
+        run: |
+          podman_socket() {
+            local runtime_dir="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
+            local socket="$runtime_dir/podman/podman.sock"
+            local provider
+            if [[ ! -S "$socket" ]]; then
+              socket=/var/run/docker.sock
+            fi
+            if [[ ! -S "$socket" ]]; then
+              printf 'Aucun socket Podman/Docker accessible.\n' >&2
+              printf 'XDG_RUNTIME_DIR=%s\n' "${XDG_RUNTIME_DIR:-<unset>}" >&2
+              ls -ld "$runtime_dir" "$runtime_dir/podman" /var/run/docker.sock 2>&1 || true
+              return 1
+            fi
+            for provider in "$(command -v docker-compose 2>/dev/null || true)" \
+              /usr/libexec/docker/cli-plugins/docker-compose \
+              /usr/lib/docker/cli-plugins/docker-compose \
+              "$HOME/.docker/cli-plugins/docker-compose"; do
+              if [[ -n "$provider" && -x "$provider" ]]; then
+                break
+              fi
+              provider=
+            done
+            if [[ -z "$provider" ]]; then
+              printf 'Plugin Docker Compose introuvable.\n' >&2
+              return 1
+            fi
+            export DOCKER_HOST="unix://$socket"
+            export PODMAN_COMPOSE_PROVIDER="$provider"
+            printf 'DOCKER_HOST=%s\n' "$DOCKER_HOST" >> "$GITHUB_ENV"
+            printf 'PODMAN_COMPOSE_PROVIDER=%s\n' "$PODMAN_COMPOSE_PROVIDER" >> "$GITHUB_ENV"
+            printf 'Socket Compose sélectionné : %s\n' "$DOCKER_HOST"
+            printf 'Fournisseur Compose sélectionné : %s\n' "$PODMAN_COMPOSE_PROVIDER"
+          }
+          podman_socket
+          podman compose version
+
+      - name: Run test suite
+        run: ./scripts/test-launcher.sh

@@ -66,21 +66,19 @@ Un bail s’applique à un appareil déterminé et non simplement à un utilisat
 Un profil d’accès est une politique définie par l’administrateur. Les utilisateurs choisissent parmi les profils qui leur sont autorisés ; ils ne peuvent pas fournir arbitrairement des réseaux ou des règles d’accès.
 
 ```yaml
-profiles:
-  server-admin:
-    default_duration: 2h
-    maximum_duration: 8h
-    networks:
-      - 192.168.10.0/24
-
-  maintenance:
-    default_duration: 30m
-    maximum_duration: 2h
-    networks:
-      - 192.168.10.10/32
+backend:
+  wireguard:
+    interfaces:
+      - name: wg0
+        description: Administration serveur
+        networks:
+          - 192.168.10.0/24
+        default_duration: 2h
+        maximum_duration: 8h
+        public_key: your_public_key_here
 ```
 
-Ce document correspond au fichier `/etc/ttl-lama/access-profiles.yml`; les options du service sont définies dans `/etc/ttl-lama/config.yml`.
+Ce document correspond au fichier `/etc/ttl-lama/backend_config.yml`. La description de l’interface devient le nom du profil et le nom de l’interface est enregistré comme `lease_target`.
 
 ### Bail d’accès
 

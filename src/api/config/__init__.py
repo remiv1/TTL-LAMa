@@ -3,6 +3,7 @@
 .. classes::
     - `AccessProfile`: Validated access-policy model.
     - `AccessProfiles`: Collection of configured access profiles.
+    - `BackendConfig`: Validated VPN backend configuration.
     - `FlaskSettings`: Flask application settings.
     - `DatabaseSettings`: Database connection settings.
     - `DatabaseConfig`: Database initialization and connection management.
@@ -16,11 +17,12 @@ from __future__ import annotations
 from .c_flask import Settings as FlaskSettings
 from .c_databases import Settings as DatabaseSettings, DatabaseConfig
 from .c_password_hasher import Settings as PasswordHasherSettings
-from .c_profiles import AccessProfile, AccessProfiles
+from .c_profiles import AccessProfile, AccessProfiles, BackendConfig
 
 __all__ = [
     "AccessProfile",
     "AccessProfiles",
+    "BackendConfig",
     "FlaskSettings",
     "DatabaseSettings",
     "DatabaseConfig",

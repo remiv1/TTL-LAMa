@@ -42,5 +42,5 @@ security:
   session_cookie_path: /
   session_lifetime: 3600
 
-access_profiles:
-  file: /etc/ttl-lama/access-profiles.yml
+backend_config:
+  file: /etc/ttl-lama/backend_config.yml

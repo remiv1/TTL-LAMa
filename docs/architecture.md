@@ -66,21 +66,19 @@ A lease applies to a specific device, not merely to a user.
 An access profile is a policy defined by the administrator. Users select from authorized profiles; they cannot supply arbitrary networks or access rules.
 
 ```yaml
-profiles:
-  server-admin:
-    default_duration: 2h
-    maximum_duration: 8h
-    networks:
-      - 192.168.10.0/24
-
-  maintenance:
-    default_duration: 30m
-    maximum_duration: 2h
-    networks:
-      - 192.168.10.10/32
+backend:
+  wireguard:
+    interfaces:
+      - name: wg0
+        description: Server administration
+        networks:
+          - 192.168.10.0/24
+        default_duration: 2h
+        maximum_duration: 8h
+        public_key: your_public_key_here
 ```
 
-This document belongs in `/etc/ttl-lama/access-profiles.yml`; service settings are defined in `/etc/ttl-lama/config.yml`.
+This document belongs in `/etc/ttl-lama/backend_config.yml`. The interface description becomes the profile name, and the interface name is stored as its `lease_target`.
 
 ### Access Lease
 

@@ -21,6 +21,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
+    openssh-client \
     sqlite3 \
     supervisor \
     && rm -rf /var/lib/apt/lists/*
@@ -43,7 +44,8 @@ RUN useradd --system --create-home --home-dir /home/ttl-lama ttl-lama \
     && mkdir -p /data /etc/ttl-lama \
     && chown ttl-lama:ttl-lama /data
 COPY src/config/config.yml /etc/ttl-lama/config.yml
-COPY src/config/access-profiles.yml /etc/ttl-lama/access-profiles.yml
+COPY src/config/backend_config.yml /etc/ttl-lama/backend_config.yml
+COPY src/config/ssh_config.yml /etc/ttl-lama/ssh_config.yml
 
 FROM base AS test
 

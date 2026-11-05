@@ -28,6 +28,7 @@ Email = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, ma
 Password = Annotated[str, StringConstraints(min_length=1, max_length=1024)]
 PublicKey = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=512)]
 Duration = Annotated[str, StringConstraints(min_length=1, max_length=255)]
+LeaseTarget = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=255)]
 Identifier = Annotated[int, Field(gt=0)]
 
 
@@ -163,6 +164,7 @@ class ProfileCreate(AccessProfile):
         - `name`: The name of the profile.
         - `default_duration`: The default duration for the profile.
         - `maximum_duration`: The maximum duration for the profile.
+        - `lease_target`: The backend interface receiving profile leases.
 
     .. author:: Rémi Verschuur <rverschuur@audit-io.fr>
     .. version:: 1.0.0
@@ -170,6 +172,7 @@ class ProfileCreate(AccessProfile):
     name: Name
     default_duration: Duration
     maximum_duration: Duration
+    lease_target: LeaseTarget
 
 
 class ProfilePatch(Input):
@@ -179,6 +182,7 @@ class ProfilePatch(Input):
         - `name`: The name of the profile.
         - `default_duration`: The default duration for the profile.
         - `maximum_duration`: The maximum duration for the profile.
+        - `lease_target`: The backend interface receiving profile leases.
         - `networks`: The list of networks associated with the profile.
 
     .. author:: Rémi Verschuur <rverschuur@audit-io.fr>
@@ -187,6 +191,7 @@ class ProfilePatch(Input):
     name: Name | None = None
     default_duration: Duration | None = None
     maximum_duration: Duration | None = None
+    lease_target: LeaseTarget | None = None
     networks: list[str] | None = Field(default=None, min_length=1)
 
 

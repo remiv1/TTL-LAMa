@@ -84,6 +84,7 @@ def test_user_lease_routes_apply_assignment_and_duration_policy(app: Flask) -> N
         AccessProfile(
             default_duration="1h",
             maximum_duration="2h",
+            lease_target="wg0",
             networks=[IPv4Network(address="10.0.0.0/24")],
         ),
     )
@@ -156,6 +157,7 @@ def test_user_lease_creation_rejects_unowned_resources(app: Flask) -> None:
         AccessProfile(
             default_duration="1h",
             maximum_duration="2h",
+            lease_target="wg0",
             networks=[IPv4Network(address="10.0.0.0/24")],
         ),
     )

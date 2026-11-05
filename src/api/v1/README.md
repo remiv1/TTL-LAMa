@@ -53,8 +53,8 @@ candidate to the server's configured YAML path (`TTL_LAMA_CONFIG_FILE`, default
 `/etc/ttl-lama/config.yml`). Its response sets `restart_required` and includes
 a warning when the file is not covered by a volume mount.
 
-The endpoints manage application settings only: profile definitions,
-`access-profiles.yml`, and profile policies in the database are out of scope.
+The endpoints manage application settings only: backend interface definitions
+in `backend_config.yml` and profile policies in the database are out of scope.
 The masked marker `[REDACTED]` is rejected in candidates; supply a secret value
 or a supported secret-file reference. Environment variables continue to
 override YAML values, and changes take effect only after an external server

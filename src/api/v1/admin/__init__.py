@@ -45,8 +45,9 @@
 from __future__ import annotations
 
 import secrets
+from collections.abc import Callable, Mapping
 from datetime import datetime, timezone
-from typing import TypeVar
+from typing import TypeVar, cast
 from uuid import UUID
 
 from flask import Blueprint, Response, current_app, jsonify, request
@@ -81,6 +82,16 @@ from .schemas import (
 
 admin = Blueprint("admin", __name__, url_prefix="/admin")
 Schema = TypeVar("Schema", bound=BaseModel)
+ErrorHandler = TypeVar("ErrorHandler", bound=Callable[..., object])
+
+
+def _error_handler(
+    exception_type: type[Exception],
+) -> Callable[[ErrorHandler], ErrorHandler]:
+    return cast(
+        Callable[[ErrorHandler], ErrorHandler],
+        admin.errorhandler(exception_type),
+    )
 
 
 @admin.before_request
@@ -159,6 +170,18 @@ def serialize(instance: Base) -> dict[str, object]:
     return result
 
 
+def _validate_profile_target(policy: AccessProfile) -> None:
+    app_config = cast(Mapping[str, object], current_app.config)
+    configured_targets = app_config.get("BACKEND_LEASE_TARGETS")
+    if configured_targets is None:
+        return
+    if not isinstance(configured_targets, set):
+        raise RuntimeError("BACKEND_LEASE_TARGETS must be a set")
+    target_names = cast(set[str], configured_targets)
+    if policy.lease_target not in target_names:
+        raise ValueError("lease_target must name a configured backend interface")
+
+
 def saved(instance: Base, status: int = 200) -> tuple[Response, int]:
     """Commit a complete domain operation before reporting success.
     
@@ -187,7 +210,7 @@ def hash_password(password: str) -> str:
     return backend.password_hasher.hash(password)
 
 
-@admin.errorhandler(HTTPException)
+@_error_handler(HTTPException)
 def http_error(error: HTTPException) -> tuple[Response, int]:
     """Return consistent JSON errors for authentication and request failures.
     
@@ -199,7 +222,7 @@ def http_error(error: HTTPException) -> tuple[Response, int]:
     return jsonify(error=error.description), error.code or 500
 
 
-@admin.errorhandler(ValueError)
+@_error_handler(ValueError)
 def invalid_request(error: ValueError) -> tuple[Response, int]:
     """Report input errors without echoing passwords or database details.
     
@@ -220,7 +243,7 @@ def invalid_request(error: ValueError) -> tuple[Response, int]:
     return jsonify(error=str(error)), 400
 
 
-@admin.errorhandler(SQLAlchemyError)
+@_error_handler(SQLAlchemyError)
 def database_error(error: SQLAlchemyError) -> tuple[Response, int]:
     """Roll back failed operations and keep database internals private.
     
@@ -425,9 +448,10 @@ def get_profile(profile_id: int) -> Response:
 
 @admin.post("/profiles")
 def create_profile() -> tuple[Response, int]:
-    """Create a profile with a validated duration and network policy."""
+    """Create a profile with a validated duration, network, and backend policy."""
     data = body(ProfileCreate)
     policy = AccessProfile.model_validate(data.model_dump(exclude={"name"}))
+    _validate_profile_target(policy)
     return saved(ProfileRepository(get_session()).create(data.name, policy), 201)
 
 
@@ -444,7 +468,9 @@ def update_profile(profile_id: int) -> tuple[Response, int]:
         current = repository.policy(profile)
         merged = current.model_dump(mode="json") if current else {}
         merged.update(data.model_dump(include=policy_fields))
-        repository.set_policy(profile, AccessProfile.model_validate(merged))
+        policy = AccessProfile.model_validate(merged)
+        _validate_profile_target(policy)
+        repository.set_policy(profile, policy)
     if data.name is not None:
         repository.ensure_name(data.name, profile.id)
         profile.name = data.name

@@ -12,4 +12,6 @@ __pycache__/
 !.env.example
 secrets/
 .github/*
+!.github/workflows/
+!.github/workflows/**
 databases/
