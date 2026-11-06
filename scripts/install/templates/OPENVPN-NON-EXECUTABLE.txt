@@ -1,0 +1,3 @@
+OpenVPN draft configuration only.
+The application schema and OpenVPN backend are not implemented.
+Do not install this file on a VPN host or run the application with this backend.

@@ -42,27 +42,25 @@ Chaque grande ligne regroupe un chantier, chaque sous-tâche un résultat à obt
 
 ### 1.3 Définir le cycle de vie des baux
 
-- [ ] Établir la liste minimale des états et les transitions autorisées.
+- [x] Établir la liste minimale des états et les transitions autorisées.
 - [ ] Définir les conditions de création, activation, expiration, révocation et échec.
-- [ ] Écrire les invariants : un bail expiré ou révoqué ne doit plus donner accès au réseau.
+- [x] Écrire les invariants : un bail expiré ou révoqué ne doit plus donner accès au réseau.
 - [ ] Définir le comportement des transitions répétées et des opérations concurrentes.
 - [ ] Ajouter des scénarios couvrant les redémarrages et les erreurs de provisionnement.
 
 ### 1.4 Stabiliser la configuration
 
-- [ ] Décrire les paramètres de l’application, les profils d’accès et leurs valeurs par défaut.
-- [ ] Confirmer la priorité entre valeurs par défaut, YAML, variables d’environnement et fichiers de secrets.
-- [ ] Définir les validations des profils : réseaux autorisés, durée par défaut et durée maximale.
+- [x] Décrire les paramètres de l’application, les profils d’accès et leurs valeurs par défaut.
+- [x] Confirmer la priorité entre valeurs par défaut, YAML, variables d’environnement et fichiers de secrets.
+- [x] Définir les validations des profils : réseaux autorisés, durée par défaut et durée maximale.
 - [ ] Documenter les erreurs de configuration et vérifier qu’elles échouent sans exposer de secret.
-- [ ] Fournir des exemples de configuration valides et invalides.
+- [x] Fournir des exemples de configuration valides et invalides.
 
 ### 1.5 Définir les contrats des composants
 
-- [ ] Définir les opérations et erreurs attendues des backends de persistance.
-- [ ] Définir les opérations et erreurs attendues des backends d’accès réseau.
-- [ ] Définir la frontière entre authentification, identité métier et autorisation.
-- [ ] Préciser les garanties transactionnelles nécessaires lors de la création ou de la révocation d’un bail.
-- [ ] Vérifier que les contrats ne dépendent pas de WireGuard ou d’un fournisseur d’identité précis.
+- [x] Définir la frontière entre authentification, identité métier et autorisation.
+- [x] Préciser les garanties transactionnelles nécessaires lors de la création ou de la révocation d’un bail.
+- [x] Vérifier que les contrats ne dépendent pas de WireGuard ou d’un fournisseur d’identité précis.
 
 ### 1.6 Définir l’audit
 
@@ -75,59 +73,69 @@ Chaque grande ligne regroupe un chantier, chaque sous-tâche un résultat à obt
 
 ### 2.1 Valider le déploiement en conteneur
 
-- [ ] Vérifier le démarrage reproductible avec le Compose de développement.
-- [ ] Confirmer l’exécution sans privilèges root et documenter les permissions requises.
-- [ ] Vérifier la persistance des données après redémarrage du conteneur.
-- [ ] Vérifier que les secrets sont montés séparément, exclus de l’image et absents des journaux.
-- [ ] Ajouter un contrôle de santé utilisable par le déploiement.
-- [ ] Documenter une procédure complète d’installation et de mise à jour.
+- [x] Générer un bundle d’installation sans écraser une sortie existante, avec les artefacts rangés selon les chemins du conteneur, les textes statiques issus de templates et les commandes Podman affichées sans exécution.
+- [x] Confirmer l’exécution sans privilèges root et documenter les permissions requises.
+- [x] Vérifier la persistance des données après redémarrage du conteneur.
+- [x] Vérifier que les secrets sont montés séparément, exclus de l’image et absents des journaux.
+- [x] Ajouter un contrôle de santé utilisable par le déploiement.
+- [x] Documenter une procédure complète d’installation et de mise à jour, en mettant à jour `INSTALL.md` pour refléter l’installeur et le layout réellement généré.
 
 ### 2.2 Terminer l’authentification interne
 
-- [ ] Comparer les fonctions déjà présentes à la cible : création et gestion des comptes, sessions, protection CSRF et limitation des tentatives.
-- [ ] Décider si l’authentification multifacteur est nécessaire au prototype et définir les facteurs acceptés.
+- [x] Comparer les fonctions déjà présentes à la cible : création et gestion des comptes, sessions, protection CSRF et limitation des tentatives.
+- [x] Décider si l’authentification multifacteur est nécessaire au prototype et définir les facteurs acceptés.
 - [ ] Implémenter les fonctions manquantes sans stocker de secrets en clair.
-- [ ] Tester les succès, refus, expirations de session, révocations et cas limites.
+- [x] Tester les succès, refus, expirations de session, révocations et cas limites.
 - [ ] Documenter la création du compte administrateur et la récupération d’accès.
 
 ### 2.3 Mettre en place la persistance SQLite
 
 - [x] Définir les tables et contraintes du modèle métier validé.
-- [ ] Créer la première migration et documenter son exécution.
 - [ ] Implémenter les dépôts pour les identités, appareils, profils, baux et événements d’audit.
 - [ ] Vérifier les transactions lors des opérations qui modifient à la fois un bail et son état de provisionnement.
 - [ ] Tester la création, la lecture, la mise à jour, la suppression et les migrations sur une base temporaire.
 
 ### 2.4 Implémenter la gestion des appareils
 
-- [ ] Définir les opérations d’enregistrement, de consultation et de révocation d’un appareil.
-- [ ] Enregistrer uniquement les informations nécessaires, dont la clé publique du client.
-- [ ] Vérifier qu’un utilisateur ne peut gérer que ses propres appareils.
+- [x] Définir les opérations d’enregistrement, de consultation et de révocation d’un appareil.
+- [x] Enregistrer les informations nécessaires à un appareil, dont la clé publique du client.
+- [x] Vérifier qu’un utilisateur ne peut gérer que ses propres appareils.
+- [ ] Valider le format des clés publiques et empêcher les doublons.
 - [ ] Tester les clés invalides, les doublons et la révocation d’un appareil ayant un bail actif.
 
 ### 2.5 Implémenter les profils et les baux
 
-- [ ] Charger et valider les profils d’accès depuis la configuration déclarative.
-- [ ] Exposer uniquement à l’utilisateur les profils auxquels il est autorisé.
-- [ ] Créer un bail lié à une identité, un appareil et un profil, avec une expiration calculée côté serveur.
-- [ ] Refuser les durées hors limites et les réseaux fournis directement par l’utilisateur.
-- [ ] Permettre à l’utilisateur de consulter et révoquer ses propres baux.
-- [ ] Tester les autorisations, limites de durée et transitions du cycle de vie.
+- [x] Charger et valider les profils d’accès depuis la configuration déclarative.
+- [x] Exposer uniquement à l’utilisateur les profils auxquels il est autorisé.
+- [x] Créer un bail lié à une identité, un appareil et un profil, avec une expiration calculée côté serveur.
+- [x] Refuser les durées hors limites et les réseaux fournis directement par l’utilisateur.
+- [x] Permettre à l’utilisateur de consulter et révoquer ses propres baux.
+- [x] Tester les autorisations, limites de durée et transitions principales du cycle de vie.
+- [ ] Tester le chargement des profils depuis le fichier configuré au démarrage de l’application.
 
 ### 2.6 Implémenter le backend WireGuard
 
-- [ ] Décider comment le processus communique avec WireGuard et limiter les privilèges à cette méthode.
-- [ ] Implémenter l’ajout, la lecture et la suppression idempotente d’un pair.
+- [x] Retenir une communication SSH du conteneur applicatif vers l’hôte VPN; ne pas confondre ce flux avec les commandes locales du CLI.
+- Pour le MVP, utiliser une clé SSH dédiée plutôt que des certificats SSH; réévaluer les certificats si une CA est disponible.
+- [x] Automatiser de façon idempotente la création d’un compte distant dédié non-root et l’application des permissions minimales.
+- [x] Limiter sudo aux opérations WireGuard nécessaires; ne jamais accorder un accès sudo générique.
+- [ ] Générer et installer une clé SSH dédiée, épingler `known_hosts`, puis documenter la rotation et la révocation de la clé.
+- [x] Monter la clé privée comme secret hors de l’image et configurer les paramètres SSH non secrets dans les fichiers de configuration.
+- [ ] Relier l’exécuteur SSH existant au backend serveur et au cycle de vie des baux.
+- [ ] Implémenter côté serveur l’ajout, la lecture et la suppression idempotente d’un pair via l’hôte VPN.
 - [ ] Associer chaque pair provisionné à un appareil et à un bail.
 - [ ] Vérifier que les réseaux appliqués proviennent exclusivement du profil autorisé.
-- [ ] Tester les erreurs du backend et empêcher qu’un échec soit présenté comme un accès actif.
-- [ ] Documenter la configuration requise côté hôte et côté WireGuard.
+- [ ] Valider côté serveur l’état et l’autorisation du bail avant toute opération privilégiée.
+- [ ] Tester les erreurs SSH et WireGuard, ainsi que l’absence de faux état actif après un échec.
+- [ ] Documenter et tester l’installation côté hôte : compte, permissions, sudoers, `known_hosts`, secrets et configuration WireGuard.
 
 ### 2.7 Garantir expiration, révocation et réconciliation
 
+- [ ] Enregistrer dans le scheduler du conteneur les tâches périodiques d’expiration et de réconciliation.
 - [ ] Déclencher l’expiration des baux arrivés à échéance.
 - [ ] Supprimer les accès associés aux baux expirés ou révoqués.
-- [ ] Au démarrage et périodiquement, comparer l’état désiré en base avec l’état du backend.
+- [ ] Au démarrage et périodiquement, comparer l’état désiré en base avec l’état WireGuard de l’hôte.
+- [ ] Définir la résolution des divergences, y compris les pairs inconnus du serveur et les indisponibilités du backend.
 - [ ] Corriger les écarts sans créer de doublons et rendre les opérations répétables.
 - [ ] Tester les arrêts et redémarrages autour d’une expiration, ainsi que les indisponibilités du backend.
 - [ ] Tracer les échecs et corrections dans les événements d’audit.
@@ -138,24 +146,16 @@ Chaque grande ligne regroupe un chantier, chaque sous-tâche un résultat à obt
 
 - [x] Vérifier le flux existant contre les exigences OIDC retenues et les contrôles de sécurité attendus.
 - [ ] Gérer les erreurs d’échange, d’état, de nonce, d’émetteur et de validation des jetons.
-- [ ] Définir la correspondance stable entre le sujet externe et l’identité locale.
-- [ ] Tester le flux avec un fournisseur simulé et documenter un exemple de configuration.
+- [x] Définir la correspondance stable entre le sujet externe et l’identité locale.
+- [x] Tester le flux avec un fournisseur simulé et documenter un exemple de configuration.
 
 ### 3.2 Ajouter les bases de données externes
 
 - [x] Confirmer les moteurs réellement visés pour la première version intégrée.
-- [ ] Vérifier les migrations, contraintes et types nécessaires sur chaque moteur retenu.
-- [ ] Ajouter des tests d’intégration isolés pour chaque moteur pris en charge.
-- [ ] Documenter les paramètres de connexion, les sauvegardes et les mises à niveau de schéma.
+- [x] Vérifier les ~~migrations~~, contraintes et types nécessaires sur chaque moteur retenu.
+- [x] Ajouter des tests d’intégration isolés pour chaque moteur pris en charge.
 
-### 3.3 Associer identités externes et profils
-
-- [ ] Définir les règles d’association entre groupes ou attributs externes et profils d’accès.
-- [ ] Valider ces règles côté serveur à chaque demande de bail.
-- [ ] Tester les attributs absents, inconnus, modifiés et les accès révoqués.
-- [ ] Documenter la configuration des associations et leur comportement en cas d’indisponibilité de l’IdP.
-
-### 3.4 Ajouter l’observabilité
+### 3.3 Ajouter l’observabilité
 
 - [ ] Définir les contrôles de santé et les indicateurs nécessaires à l’exploitation.
 - [ ] Exposer les métriques sans inclure d’identifiants ou de secrets inutiles.
@@ -168,7 +168,7 @@ Chaque grande ligne regroupe un chantier, chaque sous-tâche un résultat à obt
 
 - [ ] Vérifier que le contrat du backend d’accès couvre les opérations réellement nécessaires au cycle de vie.
 - [ ] Documenter les garanties d’idempotence, les erreurs et les responsabilités de chaque backend.
-- [ ] Ajouter un backend de test permettant de valider le cœur métier sans infrastructure réseau.
+- [x] Ajouter un backend de test permettant de valider le cœur métier sans infrastructure réseau.
 
 ### 4.2 Évaluer les extensions futures
 
@@ -185,8 +185,8 @@ Chaque grande ligne regroupe un chantier, chaque sous-tâche un résultat à obt
 
 ### 4.4 Préparer une version publique
 
-- [ ] Choisir et documenter la licence avant une version stable.
+- [x] Choisir et documenter la licence avant une version stable.
 - [ ] Vérifier que les instructions d’installation, de configuration, de mise à jour et de sauvegarde sont complètes.
 - [ ] Définir une procédure de signalement des vulnérabilités et compléter les consignes de sécurité.
-- [ ] Exécuter les tests et contrôles de sécurité prévus pour une publication.
+- [x] Exécuter les tests et contrôles de sécurité prévus pour une publication (CI/CD créé et fonctionnel)
 - [ ] Définir les critères de version stable et les limites connues du produit.
