@@ -44,25 +44,30 @@
 """
 from __future__ import annotations
 
+import math
+import os
 import secrets
+import time
 from collections.abc import Callable, Mapping
 from datetime import datetime, timezone
-from typing import TypeVar, cast
+from typing import Literal, TypeVar, cast
 from uuid import UUID
 
 from flask import Blueprint, Response, current_app, jsonify, request
 from pydantic import BaseModel, ValidationError
+from sqlalchemy import update
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from werkzeug.exceptions import HTTPException
 
 from api.common.db_objects._common import Base
 from api.common.db_objects.leases import Lease
+from api.common.db_objects.lease_provisioning import LeaseProvisioning
 from api.common.db_objects.profiles import Profile
 from api.common.repositories import (
     ConflictError, DeviceRepository, LeaseRepository, NotFoundError,
     ProfileRepository, UserRepository,
 )
-from api.common.repositories.leases import lease_status
+from api.common.repositories.leases import lease_status, utcnow
 from api.config.c_profiles import AccessProfile
 from api.database import get_session
 from auth.backends.internal import InternalAuthBackend
@@ -194,6 +199,83 @@ def saved(instance: Base, status: int = 200) -> tuple[Response, int]:
     """
     get_session().commit()
     return jsonify(serialize(instance)), status
+
+
+def _confirmed_lease(lease_id: int, status: int) -> tuple[Response, int]:
+    lease = get_session().get(Lease, lease_id, populate_existing=True)
+    if lease is None:
+        return jsonify(error="VPN provisioning is unavailable", lease_id=lease_id), 503
+    return jsonify(serialize(lease)), status
+
+
+def _compensate_apply(lease_id: int) -> None:
+    session = get_session()
+    session.execute(update(Lease).where(
+        Lease.id == lease_id, Lease.revoked_at.is_(None)
+    ).values(revoked_at=utcnow()))
+    session.execute(update(LeaseProvisioning).where(
+        LeaseProvisioning.lease_id == lease_id
+    ).values(state="pending_delete", error="apply_failed"))
+    session.commit()
+
+
+def _read_provisioning(lease_id: int) -> tuple[str | None, str | None]:
+    session = get_session()
+    record = session.get(LeaseProvisioning, lease_id, populate_existing=True)
+    result = (record.state, record.error) if record is not None else (None, None)
+    session.rollback()
+    return result
+
+
+def _provisioning_result(
+    lease_id: int,
+    operation: Literal["apply", "delete"],
+    state: str | None,
+    error: str | None,
+    timed_out: bool,
+) -> tuple[Response, int] | None:
+    if state is None:
+        if operation == "delete":
+            return _confirmed_lease(lease_id, 200)
+        return jsonify(error="VPN provisioning is unavailable", lease_id=lease_id), 503
+    target = "applied" if operation == "apply" else "deleted"
+    if state == target:
+        return _confirmed_lease(lease_id, 201 if operation == "apply" else 200)
+    if operation == "apply" and state in ("pending_delete", "deleting", "deleted", "uncertain"):
+        return jsonify(error="VPN operation failed or timed out", lease_id=lease_id), 503
+    if error is not None or timed_out:
+        if operation == "apply":
+            _compensate_apply(lease_id)
+        return jsonify(error="VPN operation failed or timed out", lease_id=lease_id), 503
+    return None
+
+
+def wait_for_lease(lease_id: int, *, operation: Literal["apply", "delete"]) -> tuple[Response, int]:
+    """Wait for the scheduler to confirm a persisted VPN operation.
+
+    :param lease_id: Identifier of the committed lease.
+    :type lease_id: int
+    :param operation: Either ``apply`` or ``delete``.
+    :type operation: str
+    :returns: The confirmed lease or an error response.
+    :rtype: tuple[Response, int]
+    """
+    timeout = float(os.environ.get("TTL_LAMA_PROVISIONING_WAIT_SECONDS", "45"))
+    if not math.isfinite(timeout) or timeout <= 0:
+        raise ValueError("The provisioning wait timeout must be positive")
+    deadline = time.monotonic() + timeout
+    while True:
+        state, error = _read_provisioning(lease_id)
+        result = _provisioning_result(
+            lease_id,
+            operation,
+            state,
+            error,
+            time.monotonic() >= deadline,
+        )
+        if result is not None:
+            return result
+        time.sleep(min(0.1, max(0, deadline - time.monotonic())))
 
 
 def hash_password(password: str) -> str:
@@ -428,7 +510,9 @@ def get_lease(lease_id: int) -> Response:
 def revoke_lease(lease_id: int) -> tuple[Response, int]:
     """Revoke a lease without deleting history."""
     repository = LeaseRepository(get_session())
-    return saved(repository.revoke(repository.get(lease_id)))
+    lease = repository.revoke(repository.get(lease_id))
+    get_session().commit()
+    return wait_for_lease(lease.id, operation="delete")
 
 
 @admin.get("/profiles")

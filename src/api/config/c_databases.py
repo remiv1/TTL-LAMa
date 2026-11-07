@@ -20,6 +20,7 @@ from typing import cast
 
 from pydantic import Field, computed_field, model_validator
 from sqlalchemy import Engine, URL, create_engine, event
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, scoped_session, sessionmaker
 from sqlalchemy.schema import CreateSchema
 
@@ -226,6 +227,17 @@ class DatabaseConfig:
                     CreateSchema(self.settings.DB_SCHEMA, if_not_exists=True),
                 )
             base_class.metadata.create_all(connection, checkfirst=True)
+            lock_model = getattr(
+                import_module("api.common.db_objects.lease_provisioning"),
+                "ProvisioningLock",
+            )
+            lock_table = lock_model.__table__
+            if connection.execute(lock_table.select().where(lock_table.c.id == 1)).first() is None:
+                try:
+                    with connection.begin_nested():
+                        connection.execute(lock_table.insert().values(id=1, version=0))
+                except IntegrityError:
+                    pass
         LOGGER.debug("Initialized database tables for %s", user_model.__tablename__)
 
     def close(self) -> None:

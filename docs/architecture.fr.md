@@ -318,6 +318,8 @@ Deux mécanismes complémentaires existent donc :
 
 TTL-LAMa étant une application synchrone, l'expiration est prise en charge par un processus dédié de scheduling. Ce processus peut utiliser APScheduler ou un mécanisme équivalent. Il est distinct des workers de l'API afin d'éviter qu'un scheduler soit créé dans chaque worker HTTP.
 
+L'implémentation actuelle utilise APScheduler et transmet les commandes WireGuard par SSH. Les sections suivantes décrivent notamment la reconstruction et la réconciliation visées, qui ne sont pas encore implémentées ; voir [Fonctionnement](operations.fr.md) pour les limites actuelles.
+
 L'architecture du conteneur devient :
 
 ```text

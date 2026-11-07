@@ -29,7 +29,7 @@ class VPNBackend(ABC):
         ... # pylint: disable=W2301
 
     @abstractmethod
-    def reconcile(self, lease: str):
+    def reconcile(self, lease: str) -> dict[str, object] | None:
         """Reconcile a VPN lease.
         
         :param lease: The VPN lease to reconcile.

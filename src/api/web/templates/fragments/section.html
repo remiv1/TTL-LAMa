@@ -128,10 +128,11 @@
             {% set device = item["device"] %}
             {% set profile = item["profile"] %}
             {% set status = item["status"] %}
+            {% set status_label = text[status ~ '_status'] %}
             <li data-lease-item>
                 <button class="lease-select" type="button" data-lease-select
                     data-lease-id="{{ lease.id }}" data-status="{{ status }}"
-                    data-status-label="{{ text.active_status if status == 'active' else text.expired_status }}"
+                    data-status-label="{{ status_label }}"
                     data-device-id="{{ device.id }}" data-device-name="{{ device.name }}"
                     data-profile-id="{{ profile.id }}" data-profile-name="{{ profile.name }}"
                     data-created-at="{{ lease.created_at.isoformat() }}{{ 'Z' if lease.created_at.tzinfo is none else '' }}"
@@ -139,7 +140,7 @@
                     data-revoked-at=""
                     aria-pressed="{{ 'true' if loop.first else 'false' }}">
                     <span>{{ device.name }} · {{ profile.name }}</span>
-                    <small>#{{ lease.id }} · {{ text.active_status if status == 'active' else text.expired_status }}</small>
+                    <small>#{{ lease.id }} · {{ status_label }}</small>
                 </button>
             </li>
             {% endfor %}
@@ -201,7 +202,7 @@
             <div>
                 <dt>{{ text.lease_status }}</dt>
                 <dd data-lease-detail-status>
-                    {% if selected %}{{ text.active_status if selected["status"] == 'active' else text.expired_status }}{% endif %}
+                    {% if selected %}{{ text[selected["status"] ~ '_status'] }}{% endif %}
                 </dd>
             </div>
             <div>

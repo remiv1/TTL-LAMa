@@ -28,6 +28,7 @@ from .admin import (
     saved,
     serialize,
     get_session,
+    wait_for_lease,
 )
 from .admin.schemas import DeviceCreate, LeaseCreate
 
@@ -115,7 +116,8 @@ def create_lease() -> tuple[Response, int]:
         profile_id=data.profile_id,
         duration=data.duration,
     )
-    return saved(lease, 201)
+    get_session().commit()
+    return wait_for_lease(lease.id, operation="apply")
 
 
 @user_api.post("/leases/<int:lease_id>/revoke")
@@ -123,4 +125,6 @@ def revoke_lease(lease_id: int) -> tuple[Response, int]:
     """Revoke an owned lease without deleting its history."""
     repository = LeaseRepository(get_session())
     lease = repository.get_owned(lease_id, str(get_authenticated_user().id))
-    return saved(repository.revoke(lease))
+    repository.revoke(lease)
+    get_session().commit()
+    return wait_for_lease(lease.id, operation="delete")

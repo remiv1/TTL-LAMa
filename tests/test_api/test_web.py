@@ -4,6 +4,7 @@ import re
 from typing import cast
 from ipaddress import IPv4Network
 
+import pytest
 from flask import Flask
 from flask.testing import FlaskClient
 
@@ -14,6 +15,8 @@ from api.common.repositories import (
     UserRepository,
 )
 from api.common.repositories.leases import utcnow
+from api.common.db_objects.lease_provisioning import LeaseProvisioning
+from api.common.db_objects.leases import Lease
 from api.config.c_profiles import AccessProfile
 
 
@@ -262,25 +265,28 @@ def test_authenticated_leases_page_groups_statuses_and_limits_creation_options(
             networks=[IPv4Network("192.168.30.0/24")],
         ),
     )
-    profile_repository.assign(user, assigned_profile)
+    assignment = profile_repository.assign(user, assigned_profile)
     lease_repository = LeaseRepository(database_session)
     active_lease = lease_repository.create(
         user_id=str(user.id),
         device_id=device.id,
         profile_id=assigned_profile.id,
     )
-    expired_lease = lease_repository.create(
+    database_session.get(LeaseProvisioning, active_lease.id).state = "applied"
+    expired_lease = Lease(
         user_id=str(user.id),
         device_id=device.id,
-        profile_id=assigned_profile.id,
+        profile_user_id=assignment.id,
+        ended_at=utcnow(),
     )
-    expired_lease.ended_at = utcnow()
-    revoked_lease = lease_repository.create(
+    revoked_lease = Lease(
         user_id=str(user.id),
         device_id=device.id,
-        profile_id=assigned_profile.id,
+        profile_user_id=assignment.id,
+        ended_at=utcnow(),
+        revoked_at=utcnow(),
     )
-    lease_repository.revoke(revoked_lease)
+    database_session.add_all([expired_lease, revoked_lease])
     database_session.commit()
     manager = app.extensions["auth_manager"]
     token = manager.session_service.create(str(user.id))
@@ -332,6 +338,30 @@ def test_authenticated_leases_page_disables_creation_without_eligible_resources(
     assert re.search(r'data-open-lease-dialog[^>]*\sdisabled(?:\s|>)', body)
 
 
+def test_lease_page_displays_pending_provisioning(app: Flask) -> None:
+    """A pending VPN lease is not displayed as expired."""
+    session = app.extensions["database_config"].session()
+    user = UserRepository(session).create(username="pending-lease-page-user")
+    device = DeviceRepository(session).create(str(user.id), "pending-device", "pending-key")
+    profiles = ProfileRepository(session)
+    profile = profiles.create("pending-lease-page-profile", AccessProfile(
+        default_duration="1h", maximum_duration="2h", lease_target="wg-pending",
+        networks=[IPv4Network("10.126.0.0/24")],
+    ))
+    profiles.assign(user, profile)
+    LeaseRepository(session).create(
+        user_id=str(user.id), device_id=device.id, profile_id=profile.id,
+    )
+    session.commit()
+    token = app.extensions["auth_manager"].session_service.create(str(user.id))
+    client = app.test_client()
+    client.set_cookie(cast(str, app.config["AUTH_COOKIE_NAME"]), token)
+    body = client.get("/leases").get_data(as_text=True)
+    assert 'data-status="pending"' in body
+    assert 'data-status-label="Pending"' in body
+
+
+@pytest.mark.usefixtures("running_lease_scheduler")
 def test_authenticated_lease_creation_and_revocation_use_csrf_protected_api(
     app: Flask,
 ) -> None:
@@ -353,6 +383,7 @@ def test_authenticated_lease_creation_and_revocation_use_csrf_protected_api(
     )
     profile_repository.assign(user, profile)
     database_session.commit()
+    device_id, profile_id = device.id, profile.id
     manager = app.extensions["auth_manager"]
     token = manager.session_service.create(str(user.id))
     client = app.test_client()
@@ -361,15 +392,15 @@ def test_authenticated_lease_creation_and_revocation_use_csrf_protected_api(
 
     created = client.post(
         "/api/v1/users/me/leases",
-        json={"device_id": device.id, "profile_id": profile.id},
+        json={"device_id": device_id, "profile_id": profile_id},
         headers=csrf_headers,
     )
 
     assert created.status_code == 201
     payload = cast(dict[str, object], created.get_json())
     assert payload["status"] == "active"
-    assert payload["device_id"] == device.id
-    assert payload["profile_id"] == profile.id
+    assert payload["device_id"] == device_id
+    assert payload["profile_id"] == profile_id
     assert payload["ended_at"]
 
     lease_id = cast(int, payload["id"])

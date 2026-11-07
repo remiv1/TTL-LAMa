@@ -2,6 +2,16 @@
 
 Ce document décrit le cycle de vie prévu d’un bail d’accès et la manière dont TTL-LAMa maintient la cohérence entre l’état désiré persisté et le backend d’accès. Le projet étant encore au stade de la conception et du prototype, il ne s’agit pas encore d’un guide d’exploitation opérationnel.
 
+## État du provisionnement WireGuard
+
+Le scheduler transmet les baux au serveur VPN par SSH, avec `sudo -n ttlama backend wg leases`. L’API attend la confirmation de l’application ou de la suppression ; en cas d’échec ou de délai dépassé, elle renvoie une erreur et l’identifiant du bail. Le scheduler programme la suppression à l’échéance et retente les suppressions échouées tant qu’il fonctionne.
+
+Les réseaux du profil deviennent les `AllowedIPs` du pair. Sur une même interface, deux réservations ne peuvent pas partager une clé publique ni des réseaux qui se chevauchent. Une réservation reste occupée tant que la suppression n’est pas confirmée. Après une application au résultat incertain, elle reste réservée même si une suppression ultérieure réussit : une commande distante tardive peut encore modifier l’état du pair.
+
+Le fichier `/etc/ttl-lama/ssh_config.yml` définit la connexion, la clé privée et le fichier `known_hosts`. Les délais en secondes sont configurables par `TTL_LAMA_SSH_COMMAND_TIMEOUT` (30 par défaut), `TTL_LAMA_PROVISIONING_WAIT_SECONDS` (45) et `TTL_LAMA_SCHEDULER_POLL_INTERVAL` (1). L’attente API doit normalement dépasser le délai SSH et l’intervalle de scrutation.
+
+**Limite importante :** la reconstruction des échéances et la réconciliation après redémarrage ne sont pas encore implémentées. Un accès peut rester actif après l’arrêt du scheduler, et une application SSH au résultat incertain peut se terminer tardivement. Vérifiez manuellement l’état du serveur VPN ; cet incrément ne convient pas à la production sans mécanisme de reprise et de réconciliation.
+
 ## Cycle de vie d’un bail
 
 Un bail suit un cycle explicite :

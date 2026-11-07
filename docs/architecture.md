@@ -317,6 +317,8 @@ Two complementary mechanisms are therefore used:
 
 Because TTL-LAMa is a synchronous application, expiration is handled by a dedicated scheduling process. This process can use APScheduler or an equivalent mechanism. It is separate from the API workers, preventing a scheduler from being created in every HTTP worker.
 
+The current implementation uses APScheduler and sends WireGuard commands over SSH. The following sections also describe the intended deadline reconstruction and reconciliation, which are not yet implemented; see [Operations](operations.md) for the current limitations.
+
 The container architecture becomes:
 
 ```text

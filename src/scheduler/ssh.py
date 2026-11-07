@@ -10,10 +10,12 @@
 from __future__ import annotations
 
 import os
+import math
 import shlex
 import subprocess
 from collections.abc import Sequence
 from pathlib import Path
+from typing import cast
 
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
@@ -47,19 +49,32 @@ class SSHCommandExecutor:
     .. version:: 1.0.0
     """
 
-    def __init__(self, config_path: Path | None = None) -> None:
+    def __init__(self, config_path: Path | None = None, timeout: float | None = None) -> None:
         """Store only the path; connection values are loaded for each command.
 
         :param config_path: Optional SSH configuration path.
         :type config_path: Path | None
+        :param timeout: Maximum command execution time in seconds.
+        :type timeout: float | None
         """
+        if timeout is None:
+            timeout = float(os.environ.get("TTL_LAMA_SSH_COMMAND_TIMEOUT", "30"))
+        if not math.isfinite(timeout) or timeout <= 0:
+            raise ValueError("The SSH command timeout must be positive")
         self._config_path = config_path
+        self._timeout = timeout
 
-    def run(self, command: Sequence[str]) -> subprocess.CompletedProcess[str]:
+    def run(
+        self, command: Sequence[str],
+        *,
+        input_data: str | None = None,
+    ) -> subprocess.CompletedProcess[str]:
         """Run a command over a new SSH connection.
 
         :param command: Remote command and arguments.
         :type command: Sequence[str]
+        :param input_data: Optional standard input for the remote command.
+        :type input_data: str | None
         :returns: The completed SSH process.
         :rtype: subprocess.CompletedProcess[str]
         :raises ValueError: If the command or SSH configuration is invalid.
@@ -74,6 +89,7 @@ class SSHCommandExecutor:
         return subprocess.run(
             [
                 "ssh",
+                "-T",
                 "-p",
                 str(settings.port),
                 "-i",
@@ -101,6 +117,8 @@ class SSHCommandExecutor:
             check=True,
             capture_output=True,
             text=True,
+            input=input_data,
+            timeout=self._timeout,
         )
 
     def _load_configuration(self) -> SSHConfiguration:
@@ -115,13 +133,16 @@ class SSHCommandExecutor:
             "/etc/ttl-lama/ssh_config.yml",
         ))
         try:
-            document = yaml.safe_load(config_path.read_text(encoding="utf-8"))
+            document: object = yaml.safe_load(config_path.read_text(encoding="utf-8"))
         except (OSError, UnicodeError, yaml.YAMLError) as error:
             raise ValueError("Unable to read the SSH configuration") from error
 
-        if not isinstance(document, dict) or not isinstance(document.get("ssh_config"), dict):
+        if not isinstance(document, dict):
+            raise ValueError("The SSH configuration must contain an ssh_config mapping")
+        values = cast(dict[str, object], document).get("ssh_config")
+        if not isinstance(values, dict):
             raise ValueError("The SSH configuration must contain an ssh_config mapping")
         try:
-            return SSHConfiguration.model_validate(document["ssh_config"])
+            return SSHConfiguration.model_validate(values)
         except ValidationError as error:
             raise ValueError("The SSH configuration is invalid") from error

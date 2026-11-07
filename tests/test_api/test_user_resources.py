@@ -3,10 +3,18 @@
 from datetime import datetime, timedelta, timezone
 from typing import cast
 from ipaddress import IPv4Network
+from unittest.mock import Mock
 
 from flask import Flask
+import pytest
 
-from api.common.repositories import DeviceRepository, ProfileRepository, UserRepository
+from api.common.repositories import (
+    DeviceRepository,
+    ProfileRepository,
+    UserRepository,
+    LeaseRepository,
+)
+from api.common.db_objects.lease_provisioning import LeaseProvisioning
 from api.config.c_profiles import AccessProfile
 from auth.manager import AuthManager
 
@@ -72,6 +80,7 @@ def test_user_device_routes_are_scoped_to_the_owner(app: Flask) -> None:
     assert client.get("/api/v1/users/me/devices").status_code == 401
 
 
+@pytest.mark.usefixtures("running_lease_scheduler")
 def test_user_lease_routes_apply_assignment_and_duration_policy(app: Flask) -> None:
     """Lease creation uses an assigned profile's default and maximum durations."""
     user_id, token = _create_user_token(app, "self-lease-owner")
@@ -93,13 +102,14 @@ def test_user_lease_routes_apply_assignment_and_duration_policy(app: Flask) -> N
         user_id, "self-lease-device", "lease-public-key"
     )
     database_session.commit()
+    device_id, profile_id, assignment_id = device.id, profile.id, assignment.id
     client = app.test_client()
     headers = {"Authorization": f"Bearer {token}"}
 
     before = datetime.now(timezone.utc)
     created = client.post(
         "/api/v1/users/me/leases",
-        json={"device_id": device.id, "profile_id": profile.id},
+        json={"device_id": device_id, "profile_id": profile_id},
         headers=headers,
     )
     after = datetime.now(timezone.utc)
@@ -107,7 +117,7 @@ def test_user_lease_routes_apply_assignment_and_duration_policy(app: Flask) -> N
     assert created.status_code == 201
     payload = cast(dict[str, object], created.get_json())
     assert payload["user_id"] == user_id
-    assert payload["profile_user_id"] == assignment.id
+    assert payload["profile_user_id"] == assignment_id
     assert payload["status"] == "active"
     ended_at = datetime.fromisoformat(cast(str, payload["ended_at"]))
     assert before + timedelta(minutes=59) < ended_at < after + timedelta(hours=1, minutes=1)
@@ -131,7 +141,7 @@ def test_user_lease_routes_apply_assignment_and_duration_policy(app: Flask) -> N
 
     too_long = client.post(
         "/api/v1/users/me/leases",
-        json={"device_id": device.id, "profile_id": profile.id, "duration": "3h"},
+        json={"device_id": device_id, "profile_id": profile_id, "duration": "3h"},
         headers=headers,
     )
     assert too_long.status_code == 409
@@ -182,3 +192,66 @@ def test_user_device_creation_reports_invalid_payload_as_json(app: Flask) -> Non
     assert response.status_code == 400
     assert response.is_json
     assert response.get_json()["error"] == "Invalid input"
+
+
+def test_lease_creation_reports_ssh_failure(
+    app: Flask,
+    running_lease_scheduler: Mock,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The API reports a failed remote application and revokes the stored bail."""
+    monkeypatch.setenv("TTL_LAMA_PROVISIONING_WAIT_SECONDS", "2")
+    running_lease_scheduler.grant.side_effect = OSError("SSH unavailable")
+    user_id, token = _create_user_token(app, "failed-vpn-user")
+    session = app.extensions["database_config"].session()
+    user = UserRepository(session).get(user_id)
+    profiles = ProfileRepository(session)
+    profile = profiles.create("failed-vpn-profile", AccessProfile(
+        default_duration="1h", maximum_duration="2h", lease_target="wg-failure",
+        networks=[IPv4Network("10.124.0.0/24")],
+    ))
+    profiles.assign(user, profile)
+    device = DeviceRepository(session).create(user_id, "failed-vpn-device", "failure-key")
+    device_id, profile_id = device.id, profile.id
+    session.commit()
+    response = app.test_client().post(
+        "/api/v1/users/me/leases",
+        json={"device_id": device_id, "profile_id": profile_id},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert response.status_code == 503
+    running_lease_scheduler.grant.assert_called_once()
+    lease_id = response.get_json()["lease_id"]
+    session = app.extensions["database_config"].session()
+    lease = LeaseRepository(session).get(lease_id)
+    assert lease.revoked_at is not None
+    assert session.get(LeaseProvisioning, lease_id).error == "apply_failed"
+
+
+def test_lease_creation_timeout_requests_compensation(
+    app: Flask, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A scheduler timeout fails the API request and reserves the uncertain peer."""
+    monkeypatch.setenv("TTL_LAMA_PROVISIONING_WAIT_SECONDS", "0.02")
+    user_id, token = _create_user_token(app, "timeout-vpn-user")
+    session = app.extensions["database_config"].session()
+    user = UserRepository(session).get(user_id)
+    profiles = ProfileRepository(session)
+    profile = profiles.create("timeout-vpn-profile", AccessProfile(
+        default_duration="1h", maximum_duration="2h", lease_target="wg-timeout",
+        networks=[IPv4Network("10.125.0.0/24")],
+    ))
+    profiles.assign(user, profile)
+    device = DeviceRepository(session).create(user_id, "timeout-device", "timeout-key")
+    device_id, profile_id = device.id, profile.id
+    session.commit()
+    response = app.test_client().post(
+        "/api/v1/users/me/leases",
+        json={"device_id": device_id, "profile_id": profile_id},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert response.status_code == 503
+    session = app.extensions["database_config"].session()
+    record = session.get(LeaseProvisioning, response.get_json()["lease_id"])
+    assert record.state == "pending_delete"
+    assert record.error == "apply_failed"
