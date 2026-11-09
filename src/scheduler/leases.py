@@ -24,6 +24,7 @@ from api.common.db_objects.lease_provisioning import LeaseProvisioning
 from api.common.db_objects.leases import Lease
 from api.common.repositories.leases import utcnow
 from api.config.c_databases import DatabaseConfig
+from scheduler.ssh import format_subprocess_failure
 from vpn_backends.wireguard import WireGuardBackend
 
 LOGGER = logging.getLogger(__name__)
@@ -228,13 +229,35 @@ class LeaseScheduler:
             else:
                 self.backend.revoke(document)
         except (OSError, RuntimeError, ValueError, subprocess.SubprocessError) as error:
-            LOGGER.warning("VPN operation failed for lease %s (%s)", lease_id, type(error).__name__)
+            if isinstance(error, subprocess.CalledProcessError):
+                self._log_subprocess_failure(lease_id, applying, error)
+            else:
+                LOGGER.warning(
+                    "VPN %s operation failed for lease %s (%s)",
+                    "apply" if applying else "delete",
+                    lease_id,
+                    type(error).__name__,
+                )
             self._fail(session, lease_id, applying)
             return
         if applying:
             self._complete_apply(session, lease_id)
         else:
             self._complete_delete(session, lease_id)
+
+    @staticmethod
+    def _log_subprocess_failure(
+        lease_id: int,
+        applying: bool,
+        error: subprocess.CalledProcessError,
+    ) -> None:
+        operation = "apply" if applying else "delete"
+        LOGGER.warning(
+            "VPN %s operation failed for lease %s (%s)",
+            operation,
+            lease_id,
+            format_subprocess_failure(error),
+        )
 
     def _claim(self, session: Session, lease_id: int) -> tuple[str, bool] | None:
         record = session.get(LeaseProvisioning, lease_id)

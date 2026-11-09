@@ -26,8 +26,8 @@ import subprocess
 import sys
 import tempfile
 import uuid
-from pathlib import Path
-from typing import Any
+from pathlib import Path, PurePosixPath
+from typing import Any, cast
 
 import yaml
 
@@ -36,13 +36,19 @@ sys.path.insert(0, str(REPOSITORY_ROOT / "src"))
 
 from api.config.c_profiles import BackendConfig, parse_duration  # pylint: disable=C0413
 from api.config.global_config import redact_secrets, validate_configuration  # pylint: disable=C0413
+from scheduler.panic import PanicSettings, SMTPSettings  # pylint: disable=C0413
 from scheduler.ssh import SSHConfiguration  # pylint: disable=C0413
 
 CONTAINER_CONFIG = "/etc/ttl-lama/config.yml"
 CONTAINER_BACKEND_CONFIG = "/etc/ttl-lama/backend_config.yml"
 CONTAINER_SSH_CONFIG = "/etc/ttl-lama/ssh_config.yml"
 CONTAINER_KNOWN_HOSTS = "/etc/ttl-lama/ssh_known_hosts"
+CONTAINER_PANIC_SCRIPT = "/etc/ttl-lama/panic_script.sh"
+CONTAINER_PANIC_MAIL_CONFIG = "/etc/ttl-lama/panic_mail_config.yml"
 CONTAINER_SECRETS = "/run/secrets"
+CONTAINER_PANIC_MAIL_SECRET = f"{CONTAINER_SECRETS}/panic_mail_secret"
+CONTAINER_UID = 999
+CONTAINER_GID = 999
 DEFAULT_CLI_PATH = "/opt/ttl-lama-cli/bin/ttlama"
 WRAPPER_PATH = "/usr/local/sbin/ttlama-ssh-wrapper"
 VPN_HOST_SETUP_FILE = "vpn-host-setup.sh"
@@ -51,6 +57,30 @@ WIREGUARD_PUBLIC_KEY_PLACEHOLDER = "REPLACE_WITH_WIREGUARD_PUBLIC_KEY"
 INSTALL_CONFIG_PATH = Path("etc/ttl-lama")
 INSTALL_SECRETS_PATH = Path("run/secrets")
 INSTALL_VPN_PATH = Path("opt/ttl-lama-vpn")
+
+
+def _panic_script_relative_path(container_path: str) -> Path:
+    script_path = PurePosixPath(container_path)
+    config_directory = PurePosixPath(CONTAINER_CONFIG).parent
+    if not script_path.is_absolute():
+        raise ValueError("The panic script container path must be absolute.")
+    try:
+        relative_path = script_path.relative_to(config_directory)
+    except ValueError as error:
+        raise ValueError("The panic script path must be under /etc/ttl-lama.") from error
+    if not relative_path.parts or ".." in relative_path.parts:
+        raise ValueError("The panic script path must name a file under /etc/ttl-lama.")
+    if any(not re.fullmatch(r"[A-Za-z0-9._-]+", part) for part in relative_path.parts):
+        raise ValueError("The panic script path contains unsupported characters.")
+    if relative_path in {
+        PurePosixPath("config.yml"),
+        PurePosixPath("backend_config.yml"),
+        PurePosixPath("ssh_config.yml"),
+        PurePosixPath("ssh_known_hosts"),
+        PurePosixPath("panic_mail_config.yml"),
+    }:
+        raise ValueError("The panic script path conflicts with an installation file.")
+    return Path(*relative_path.parts)
 
 
 def _unique_output_directory(output_dir: Path) -> Path:
@@ -493,6 +523,59 @@ def _collect_ssh(vpn_host: str) -> dict[str, Any]:
     }
 
 
+def _collect_panic() -> tuple[dict[str, Any], Path | None, dict[str, Any] | None, str | None]:
+    print_section(
+        "Panic handling",
+        "After startup reconciliation retries are exhausted, TTL-LAMa can run an optional "
+        "administrator script and send an optional SMTP notification. If enabled, an executable "
+        "placeholder is created in the generated installation for you to edit before startup.",
+    )
+    mode = ask_choice("Panic mode", ["on_error", "disabled"], "on_error")
+    retry = ask_int("Reconciliation attempts before panic", 3, 1, 10)
+
+    script_relative_path: Path | None = None
+    script_path: str | None = None
+    if ask_bool("Configure an administrator panic script?", False):
+        script_path = str(PurePosixPath(ask_text(
+            "Container path for the panic script",
+            CONTAINER_PANIC_SCRIPT,
+        )))
+        script_relative_path = _panic_script_relative_path(script_path)
+
+    notify = ask_bool("Enable panic email notifications?", False)
+    mail: dict[str, Any] = {"send": notify}
+    smtp_settings: dict[str, Any] | None = None
+    smtp_password: str | None = None
+    if notify:
+        recipient = ask_text("Panic notification recipient")
+        smtp_settings = {
+            "host": ask_text("SMTP host"),
+            "port": ask_int("SMTP port", 587, 1, 65535),
+            "use_tls": ask_bool("Use SMTP STARTTLS?", True),
+        }
+        if ask_bool("Does the SMTP server require authentication?", False):
+            username = ask_text("SMTP username")
+            smtp_settings["username"] = username
+            smtp_password = ask_secret("SMTP password")
+            mail["secret_file"] = CONTAINER_PANIC_MAIL_SECRET
+        SMTPSettings.model_validate(smtp_settings)
+        mail.update({
+            "to": recipient,
+            "subject": ask_text("Panic email subject", "TTL-LAMa panic notification"),
+            "body": "A backend reconciliation failed.",
+            "config_file": CONTAINER_PANIC_MAIL_CONFIG,
+        })
+
+    panic_settings: dict[str, Any] = {
+        "mode": mode,
+        "retry": retry,
+        "script": script_path,
+        "notify": notify,
+        "mail": mail,
+    }
+    return panic_settings, script_relative_path, smtp_settings, smtp_password
+
+
 def collect_answers() -> dict[str, Any]:
     """Collect and validate installation answers.
 
@@ -515,6 +598,7 @@ def collect_answers() -> dict[str, Any]:
     security = _collect_security(application["environment"])
     backend_type, backend_settings = _collect_backend()
     ssh_settings = _collect_ssh(vpn_host)
+    panic, panic_script_relative_path, panic_mail_settings, panic_mail_password = _collect_panic()
     return {
         "same_host": same_host,
         "vpn_host": vpn_host,
@@ -526,6 +610,10 @@ def collect_answers() -> dict[str, Any]:
         **security,
         "backend_type": backend_type,
         "backend_settings": backend_settings,
+        "panic": panic,
+        "panic_script_relative_path": panic_script_relative_path,
+        "panic_mail_settings": panic_mail_settings,
+        "panic_mail_password": panic_mail_password,
         **ssh_settings,
     }
 
@@ -567,6 +655,7 @@ def application_configuration(answers: dict[str, Any]) -> dict[str, Any]:
             "session_lifetime": answers["session_lifetime"],
         },
         "backend_config": {"file": CONTAINER_BACKEND_CONFIG},
+        "panic": answers["panic"],
     }
 
 
@@ -603,6 +692,14 @@ def validate_application(
         raise ValueError(
             "Invalid application configuration. Review the entered values and try again."
         )
+    try:
+        panic_settings = PanicSettings.model_validate(configuration.get("panic", {}))
+        if panic_settings.script is not None:
+            _panic_script_relative_path(str(panic_settings.script))
+    except ValueError as error:
+        raise ValueError(
+            "Invalid panic configuration. Review the entered values and try again."
+        ) from error
 
 
 def validate_backend(settings: dict[str, Any], backend_type: str) -> None:
@@ -741,9 +838,8 @@ def sudoers_content(cli_path: str, remote_user: str) -> str:
     :rtype: str
     """
     return (
-        f"Cmnd_Alias TTLAMA_WG_APPLY = {cli_path} backend wg leases apply --lease -\n"
-        f"Cmnd_Alias TTLAMA_WG_DELETE = {cli_path} backend wg leases delete --lease -\n"
-        f"{remote_user} ALL=(root) NOPASSWD: TTLAMA_WG_APPLY, TTLAMA_WG_DELETE\n"
+        f"Cmnd_Alias TTLAMA_WG = {cli_path} backend wg *\n"
+        f"{remote_user} ALL=(root) NOPASSWD: TTLAMA_WG\n"
     )
 
 
@@ -775,6 +871,8 @@ def render_wireguard_artifacts(
     setup = setup.replace("@@REMOTE_USER@@", shlex.quote(answers["ssh_user"]))
     setup = setup.replace("@@CLI_PATH@@", shlex.quote(answers["cli_path"]))
     setup = setup.replace("@@AUTHORIZED_KEY_LINE@@", shlex.quote(public_key_line))
+    setup = setup.replace("@@KNOWN_HOSTS_HOST@@", shlex.quote(answers["vpn_host"]))
+    setup = setup.replace("@@SSH_PORT@@", shlex.quote(str(answers["ssh_port"])))
     write_text(staging_dir / VPN_HOST_SETUP_FILE, setup, 0o755)
     write_text(staging_dir / "wireguard-ssh-key.pub", public_key + "\n")
 
@@ -856,6 +954,26 @@ def output_files(
         public_key = create_ssh_key(answers, secret_dir)
         write_yaml(config_dir / "config.yml", configuration, 0o600)
         write_yaml(config_dir / "backend_config.yml", answers["backend_settings"], 0o600)
+        if answers["panic_script_relative_path"] is not None:
+            script_path = config_dir / answers["panic_script_relative_path"]
+            script_path.parent.mkdir(parents=True, exist_ok=True)
+            write_text(
+                script_path,
+                "#!/bin/sh\n# Paste the administrator panic script below.\n",
+                0o755,
+            )
+        if answers["panic_mail_settings"] is not None:
+            write_yaml(
+                config_dir / "panic_mail_config.yml",
+                answers["panic_mail_settings"],
+                0o600,
+            )
+        if answers["panic_mail_password"] is not None:
+            write_text(
+                secret_dir / "panic_mail_secret",
+                answers["panic_mail_password"] + "\n",
+                0o600,
+            )
         write_yaml(config_dir / "ssh_config.yml", {
             "ssh_config": {
                 "host": answers["vpn_host"],
@@ -922,6 +1040,7 @@ def podman_commands(
     commands = [
         "podman volume create " + shlex.quote(volume_name),
         "podman run -d \\",
+        f"  --userns=keep-id:uid={CONTAINER_UID},gid={CONTAINER_GID} " + chr(92),
         "  --name " + shlex.quote(container_name) + " \\",
         "  --env-file " + shlex.quote(str(output_dir / ".env")) + " \\",
         "  -p " + shlex.quote(f"{published_port}:{server_port}") + " \\",
@@ -942,10 +1061,33 @@ def podman_commands(
             f"{output_dir / INSTALL_SECRETS_PATH}:{CONTAINER_SECRETS}:z,ro"
         ) + " \\",
         VOLUME_MOUNT_PREFIX + shlex.quote(
-            f"{volume_name}:/data:z,rw"
+            f"{volume_name}:/data:z,rw,U"
         ) + " \\",
         "  " + shlex.quote(image),
     ]
+    panic: object = configuration.get("panic", {})
+    panic_settings = cast(dict[str, object], panic) if isinstance(panic, dict) else {}
+    script_path = panic_settings.get("script")
+    if script_path is not None:
+        if not isinstance(script_path, str):
+            raise ValueError("The panic script container path must be a string.")
+        script_relative_path = _panic_script_relative_path(script_path)
+        commands.insert(
+            -1,
+            VOLUME_MOUNT_PREFIX + shlex.quote(
+                f"{output_dir / INSTALL_CONFIG_PATH / script_relative_path}:"
+                f"{script_path}:z,ro"
+            ) + " \\",
+        )
+    mail = panic_settings.get("mail")
+    if isinstance(mail, dict) and cast(dict[str, object], mail).get("send") is True:
+        commands.insert(
+            -1,
+            VOLUME_MOUNT_PREFIX + shlex.quote(
+                f"{output_dir / INSTALL_CONFIG_PATH / 'panic_mail_config.yml'}:"
+                f"{CONTAINER_PANIC_MAIL_CONFIG}:z,ro"
+            ) + " \\",
+        )
     return "\n".join(commands)
 
 

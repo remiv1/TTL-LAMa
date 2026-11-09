@@ -51,6 +51,28 @@
 
 9. **SSH** — Hôte VPN, port, utilisateur dédié, chemin de la clé d’identité, fichier `known_hosts` et délai de connexion. Générer une clé dédiée si nécessaire; ne jamais désactiver la vérification de l’hôte.
 
+## SSH host key setup (WireGuard)
+
+The generated `vpn-host-setup.sh` provisions the restricted VPN account and installs the client's public key in that account's `authorized_keys`. These are different keys: the client key (`wireguard-ssh-key.pub`) must not be used as the SSH server host key.
+
+After running `vpn-host-setup.sh` on the VPN host, the script attempts to scan the local SSH service on the configured port. It prints the ED25519 fingerprint and a complete `known_hosts` entry using the VPN host and port configured for TTL-LAMa. The scan must reach the same SSH service that the application container reaches.
+
+Verify the printed fingerprint through a trusted channel before using the entry. On a standard OpenSSH server, compare it with the fingerprint of the active ED25519 host public key, for example:
+
+```sh
+sudo ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub
+```
+
+If the SSH daemon uses a custom `HostKey` path, check that key's `.pub` file instead. Do not copy the fingerprint into `ssh_known_hosts`: it is only for comparison. Copy the complete entry printed by the setup script into `etc/ttl-lama/ssh_known_hosts` on the application host. For a non-default port, the entry must identify the endpoint as `[host]:port`; the setup script formats this automatically. Keep `StrictHostKeyChecking` enabled.
+
+If startup reports `No ED25519 host key is known`, check that the mounted file contains an entry for the exact configured host and port and that the entry includes the full public key (key type and base64 key data), not just an `SHA256:` fingerprint. For example, inspect the mounted file with:
+
+```sh
+podman exec ttl-lama ssh-keygen -F '[host.containers.internal]:39022' -f /etc/ttl-lama/ssh_known_hosts
+```
+
+After correcting the host entry on the application host, restart the container so startup reconciliation runs again.
+
 ## Déploiement prévu
 
 ```text

@@ -40,7 +40,7 @@ RUN chmod +x \
 COPY --from=web-assets /build/src/api/web/static/css/main.css /opt/ttl-lama/src/api/web/static/css/main.css
 COPY --from=web-assets /build/src/api/web/static/js/htmx.min.js /opt/ttl-lama/src/api/web/static/js/htmx.min.js
 COPY --from=web-assets /build/src/api/web/static/fonts/ /opt/ttl-lama/src/api/web/static/fonts/
-RUN useradd --system --create-home --home-dir /home/ttl-lama ttl-lama \
+RUN useradd --system --uid 999 --user-group --create-home --home-dir /home/ttl-lama ttl-lama \
     && mkdir -p /data /etc/ttl-lama \
     && chown ttl-lama:ttl-lama /data
 COPY src/config/config.yml /etc/ttl-lama/config.yml

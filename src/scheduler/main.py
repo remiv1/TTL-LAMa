@@ -19,6 +19,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from api.config.c_databases import DatabaseConfig, Settings
 from scheduler.leases import LeaseScheduler
 from scheduler.panic import PanicMode, PanicSettings
+from scheduler.ssh import format_subprocess_failure
 
 if TYPE_CHECKING:
     from scheduler_types import ScheduledJobs
@@ -59,12 +60,20 @@ def _reconcile_on_startup(
             TypeError,
             ValueError,
         ) as error:
-            logger.warning(
-                "Startup reconciliation failed (%s/%s; %s)",
-                attempt,
-                attempts,
-                type(error).__name__,
-            )
+            if isinstance(error, subprocess.CalledProcessError):
+                logger.warning(
+                    "Startup reconciliation failed (%s/%s; %s)",
+                    attempt,
+                    attempts,
+                    format_subprocess_failure(error),
+                )
+            else:
+                logger.warning(
+                    "Startup reconciliation failed (%s/%s; %s)",
+                    attempt,
+                    attempts,
+                    type(error).__name__,
+                )
         else:
             return True
     panic_mode.trigger(f"Reconciliation failed after {attempts} attempts.")

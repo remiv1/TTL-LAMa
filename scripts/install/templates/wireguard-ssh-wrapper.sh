@@ -4,13 +4,16 @@ set -eu
 CLI=@@CLI_PATH@@
 
 case "${SSH_ORIGINAL_COMMAND:-}" in
-    list)
-        exec "$CLI" backend wg leases ls --interface all --json
+    'sudo -n ttlama backend wg leases ls --interface all --json')
+        exec /usr/bin/sudo -n "$CLI" backend wg leases ls --interface all --json
         ;;
-    apply)
+    'sudo -n ttlama backend wg leases get --lease - --json')
+        exec /usr/bin/sudo -n "$CLI" backend wg leases get --lease - --json
+        ;;
+    'sudo -n ttlama backend wg leases apply --lease -')
         exec /usr/bin/sudo -n "$CLI" backend wg leases apply --lease -
         ;;
-    delete)
+    'sudo -n ttlama backend wg leases delete --lease -')
         exec /usr/bin/sudo -n "$CLI" backend wg leases delete --lease -
         ;;
     *)
