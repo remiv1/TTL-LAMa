@@ -11,7 +11,7 @@ from __future__ import annotations
 import json
 import logging
 import subprocess
-from datetime import timezone
+from datetime import datetime, timezone
 from threading import Lock
 from typing import TYPE_CHECKING, cast
 
@@ -72,6 +72,144 @@ class LeaseScheduler:
         finally:
             self.database.session.remove()
             self._lock.release()
+
+    def reconcile(self) -> None:
+        """Converge backend peers and expiration jobs to persisted leases."""
+        lease_states, desired = self._load_desired_state()
+        observed = self._load_observed_state()
+        self._reconcile_peers(desired, observed)
+        self._restore_expiration_jobs(lease_states)
+        self._persist_reconciliation(lease_states)
+
+    def _load_desired_state(
+        self,
+    ) -> tuple[
+        dict[int, tuple[bool, datetime]],
+        dict[tuple[str, str], tuple[dict[str, object], tuple[str, ...]]],
+    ]:
+        session = self.database.session()
+        now = utcnow()
+        lease_states: dict[int, tuple[bool, datetime]] = {}
+        desired: dict[tuple[str, str], tuple[dict[str, object], tuple[str, ...]]] = {}
+        try:
+            rows = session.execute(
+                select(LeaseProvisioning, Lease)
+                .join(Lease, Lease.id == LeaseProvisioning.lease_id)
+                .order_by(LeaseProvisioning.lease_id)
+            ).all()
+            for record, lease in rows:
+                document = dict(record.document)
+                interface, identity, addresses = self._parse_peer_state(
+                    document.get("interface"),
+                    document.get("public_key"),
+                    document.get("addresses"),
+                    "Invalid persisted WireGuard lease document",
+                )
+                end = lease.ended_at
+                if end.tzinfo is not None:
+                    end = end.astimezone(timezone.utc).replace(tzinfo=None)
+                active = lease.revoked_at is None and end > now
+                lease_states[lease.id] = (active, lease.ended_at)
+                if active:
+                    key = (interface, identity)
+                    if key in desired:
+                        raise RuntimeError("Duplicate active WireGuard peer in database")
+                    desired[key] = (document, addresses)
+            session.rollback()
+            return lease_states, desired
+        finally:
+            self.database.session.remove()
+
+    def _load_observed_state(self) -> dict[tuple[str, str], tuple[str, ...]]:
+        observed: dict[tuple[str, str], tuple[str, ...]] = {}
+        for peer in self.backend.list_leases():
+            interface, identity, addresses = self._parse_peer_state(
+                peer.get("interface"),
+                peer.get("identity"),
+                peer.get("addresses"),
+                "Invalid WireGuard peer state",
+            )
+            key = (interface, identity)
+            if key in observed:
+                raise RuntimeError("Duplicate WireGuard peer state")
+            observed[key] = addresses
+        return observed
+
+    @staticmethod
+    def _parse_peer_state(
+        interface: object,
+        identity: object,
+        addresses: object,
+        error_message: str,
+    ) -> tuple[str, str, tuple[str, ...]]:
+        if (
+            not isinstance(interface, str)
+            or not interface
+            or not isinstance(identity, str)
+            or not identity
+            or not isinstance(addresses, list)
+        ):
+            raise RuntimeError(error_message)
+        parsed_addresses: list[str] = []
+        for address in cast(list[object], addresses):
+            if not isinstance(address, str):
+                raise RuntimeError(error_message)
+            parsed_addresses.append(address)
+        return interface, identity, tuple(parsed_addresses)
+
+    def _reconcile_peers(
+        self,
+        desired: dict[tuple[str, str], tuple[dict[str, object], tuple[str, ...]]],
+        observed: dict[tuple[str, str], tuple[str, ...]],
+    ) -> None:
+        for key, (document, desired_addresses) in desired.items():
+            current_addresses = observed.pop(key, None)
+            if current_addresses is None or set(current_addresses) != set(desired_addresses):
+                self.backend.grant(json.dumps(document, separators=(",", ":")))
+
+        for (interface, identity), addresses in observed.items():
+            self.backend.revoke(json.dumps({
+                "interface": interface,
+                "public_key": identity,
+                "addresses": list(addresses),
+            }, separators=(",", ":")))
+
+    def _restore_expiration_jobs(
+        self,
+        lease_states: dict[int, tuple[bool, datetime]],
+    ) -> None:
+        for lease_id, (active, ended_at) in lease_states.items():
+            if not active:
+                self._remove_expiration(lease_id)
+                continue
+            run_date = (
+                ended_at.replace(tzinfo=timezone.utc)
+                if ended_at.tzinfo is None
+                else ended_at.astimezone(timezone.utc)
+            )
+            self.scheduler.add_job(
+                self.expire,
+                "date",
+                run_date=run_date,
+                args=[lease_id],
+                id=f"lease-expiry-{lease_id}",
+                misfire_grace_time=None,
+                replace_existing=True,
+            )
+
+    def _persist_reconciliation(
+        self,
+        lease_states: dict[int, tuple[bool, datetime]],
+    ) -> None:
+        session = self.database.session()
+        try:
+            for lease_id, (active, _) in lease_states.items():
+                session.execute(update(LeaseProvisioning).where(
+                    LeaseProvisioning.lease_id == lease_id,
+                ).values(state="applied" if active else "deleted", error=None))
+            session.commit()
+        finally:
+            self.database.session.remove()
 
     def process(self, lease_id: int) -> None:
         """Process a pending VPN operation for one lease.

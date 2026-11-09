@@ -44,3 +44,18 @@ security:
 
 backend_config:
   file: /etc/ttl-lama/backend_config.yml
+
+panic:
+  mode: on_error
+  retry: 3
+  script: /etc/ttl-lama/panic_script.sh
+  notify: true
+  mail:
+    send: true
+    to: admin@example.com
+    subject: Panic Alert
+    body: |
+      A panic event has occurred.
+      Please check the logs and take necessary actions.
+    config_file: /etc/ttl-lama/panic_mail_config.yml
+    secret_file: /run/secrets/panic_mail_secret

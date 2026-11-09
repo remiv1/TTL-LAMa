@@ -252,13 +252,7 @@ Cela permet notamment de reconstruire entièrement l'état dynamique de WireGuar
 
 Un redémarrage du serveur peut provoquer la disparition des peers qui avaient été ajoutés dynamiquement à WireGuard. TTL-LAMa dispose donc d'un mécanisme de réconciliation permettant de reconstruire l'état attendu à partir des baux persistés.
 
-La commande :
-
-```bash
-ttlama sync
-```
-
-déclenche cette réconciliation via l'API TTL-LAMa.
+La réconciliation est actuellement exécutée au démarrage du processus scheduler, avant le démarrage d'APScheduler. Elle n'est ni déclenchée par une commande API ni exécutée périodiquement.
 Conceptuellement :
 
 ```text
@@ -289,7 +283,7 @@ Elle permet :
 - de supprimer un peer qui ne correspond plus à un bail valide ;
 - de corriger une divergence entre l'état persistant de TTL-LAMa et l'état effectif du backend.
 
-La réconciliation constitue ainsi un mécanisme de convergence vers l'état désiré, et non seulement un mécanisme de restauration après démarrage.
+La réconciliation converge vers l'état désiré au démarrage. Une dérive apparue pendant l'exécution ne sera corrigée qu'au prochain redémarrage du scheduler.
 
 ### Expiration des baux
 
@@ -318,7 +312,7 @@ Deux mécanismes complémentaires existent donc :
 
 TTL-LAMa étant une application synchrone, l'expiration est prise en charge par un processus dédié de scheduling. Ce processus peut utiliser APScheduler ou un mécanisme équivalent. Il est distinct des workers de l'API afin d'éviter qu'un scheduler soit créé dans chaque worker HTTP.
 
-L'implémentation actuelle utilise APScheduler et transmet les commandes WireGuard par SSH. Les sections suivantes décrivent notamment la reconstruction et la réconciliation visées, qui ne sont pas encore implémentées ; voir [Fonctionnement](operations.fr.md) pour les limites actuelles.
+L'implémentation actuelle utilise APScheduler et transmet les commandes WireGuard par SSH. Au démarrage, elle réconcilie les peers, restaure les jobs d'expiration, puis démarre la scrutation des opérations en attente. Après plusieurs échecs consécutifs, le mode panic peut lancer le script administrateur et envoyer un courriel optionnel. Voir [Fonctionnement](operations.fr.md) pour les limites actuelles.
 
 L'architecture du conteneur devient :
 
@@ -346,7 +340,7 @@ Les tâches du scheduler ne constituent pas une source de vérité. À chaque d�
 Le démarrage suit conceptuellement la séquence suivante :
 
 ```texte
-scheduler start
+réconciliation au démarrage
       |
       v
 charger les baux actifs
@@ -454,7 +448,7 @@ Les responsabilités peuvent finalement être résumées ainsi :
 | API | Création, modification et révocation des baux |
 | Scheduler | Déclenchement des expirations à leur échéance |
 | Backend WireGuard | Matérialisation et suppression des accès réseau |
-| ttlama sync | Déclenchement de la réconciliation via l'API |
+| Scheduler au démarrage | Réconciliation des peers et restauration des échéances |
 | Réconciliateur | Convergence entre les baux valides et l'état du backend |
 | Superviseur | Surveillance et relance des processus internes au conteneur |
 
@@ -465,6 +459,6 @@ L'ensemble de cette architecture vise à maintenir l'invariant suivant :
 > Un accès réseau matérialisé dans un backend ne doit exister que s'il correspond à un bail TTL-LAMa actuellement valide.
 
 Le scheduler assure le fonctionnement normal de cet invariant dans le temps.
-La réconciliation constitue le mécanisme de récupération et de convergence en cas de redémarrage, de panne ou de divergence.
+La réconciliation constitue le mécanisme de récupération au redémarrage et corrige alors les divergences présentes dans le backend.
 
 La persistence TTL-LAMa reste dans tous les cas la source de vérité, tandis que le backend réseau ne représente que la matérialisation de l'état désiré.

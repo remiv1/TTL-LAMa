@@ -18,6 +18,7 @@ ONLY_SQLITE=false
 WITHOUT_OIDC=false
 TEST_SELECTORS=()
 CONTAINERS_TO_DOWN=''
+WIREGUARD_BACKEND_STARTED=false
 export PODMAN_COMPOSE_WARNING_LOGS=false
 
 usage() {
@@ -111,6 +112,47 @@ launch_database() {
   fi
   CONTAINERS_TO_DOWN="$CONTAINERS_TO_DOWN postgres mariadb mysql"
 }
+
+launch_wireguard_backend() {
+  local existing
+  existing=$(podman ps \
+    --filter label=io.podman.compose.project=ttl-lama \
+    --filter label=io.podman.compose.service=wireguard-backend \
+    --format '{{.Names}}')
+  if [[ -z "$existing" ]]; then
+    podman compose -f "$COMPOSE_FILE" up -d wireguard-backend > "$LOG_FILE" 2>&1
+    code=$?
+    if (( code != 0 )); then
+      printf "${RED}%s${RESET}\n" "Erreur lors du lancement du backend WireGuard. Voir $LOG_FILE pour les détails."
+      cat "$LOG_FILE"
+      rm -f "$LOG_FILE"
+      return "$code"
+    fi
+    WIREGUARD_BACKEND_STARTED=true
+  fi
+
+  local attempt
+  for ((attempt = 0; attempt < 30; attempt++)); do
+    if podman compose -f "$COMPOSE_FILE" run --rm --no-deps tests \
+      ssh-keyscan -T 2 -t ed25519 wireguard-backend >/dev/null 2>&1; then
+      printf "${GREEN}%s${RESET}\n" "Le backend WireGuard est joignable depuis le conteneur de tests."
+      return 0
+    fi
+    sleep 1
+  done
+
+  printf "${RED}%s${RESET}\n" "Le backend WireGuard n'a pas démarré SSH à temps." >&2
+  podman compose -f "$COMPOSE_FILE" logs --no-color wireguard-backend >&2 || true
+  return 1
+}
+
+stop_wireguard_backend() {
+  if [[ "$WIREGUARD_BACKEND_STARTED" == true ]]; then
+    podman compose -f "$COMPOSE_FILE" stop wireguard-backend >/dev/null 2>&1 || true
+  fi
+}
+
+trap stop_wireguard_backend EXIT
 
 launch_oidc_provider() {
   # Launch the OIDC provider container using podman compose and log the output to a file
@@ -211,6 +253,12 @@ if [[ "$WITHOUT_OIDC" == false ]]; then
   result launch_oidc_provider "[OIDC] OIDC Provider lancé avec succès." "Échec du lancement de l'OIDC Provider."
 else
   printf "${YELLOW}%s${RESET}\n" "[OIDC] Lancement de Dex ignoré."
+fi
+printf "\n"
+
+section "$BLUE" "Lancement du backend WireGuard de test"
+if ! launch_wireguard_backend; then
+  exit 1
 fi
 printf "\n"
 

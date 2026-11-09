@@ -64,6 +64,30 @@ services:
     ports:
       - "5556:5556"
 
+  wireguard-backend:
+    build:
+      context: .
+      dockerfile: tests/integration/wireguard_backend/Dockerfile
+    cap_add:
+      - NET_ADMIN
+    volumes:
+      - wireguard-test-ssh:/run/ttl-lama-test
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "ssh-keyscan",
+          "-T",
+          "2",
+          "-t",
+          "ed25519",
+          "127.0.0.1",
+        ]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+      start_period: 5s
+
   tests:
     container_name: tests
     build:
@@ -73,9 +97,12 @@ services:
     environment:
       TTL_LAMA_CONFIG_FILE: /dev/null
       TTL_LAMA_TEST_DATABASES: sqlite,postgresql,mariadb,mysql
+      TTL_LAMA_TEST_WIREGUARD_BACKEND: wireguard-backend
       TTL_LAMA_TEST_POSTGRESQL_URL: postgresql+psycopg://ttl_lama_test:test-only-password@postgres:5432/ttl_lama_test
       TTL_LAMA_TEST_MARIADB_URL: mariadb+pymysql://root:test-only-password@mariadb:3306/ttl_lama_test
       TTL_LAMA_TEST_MYSQL_URL: mysql+pymysql://root:test-only-password@mysql:3306/ttl_lama_test
+    volumes:
+      - wireguard-test-ssh:/run/ttl-lama-test
     depends_on:
       postgres:
         condition: service_healthy
@@ -85,4 +112,9 @@ services:
         condition: service_healthy
       dex:
         condition: service_healthy
+      wireguard-backend:
+        condition: service_healthy
     command: ["python", "-m", "pytest", "-v", "--color=yes", "-ra", "-p", "no:cacheprovider"]
+
+volumes:
+  wireguard-test-ssh:

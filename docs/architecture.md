@@ -252,13 +252,7 @@ This makes it possible, in particular, to fully rebuild the dynamic WireGuard st
 
 A server restart may cause peers that were dynamically added to WireGuard to disappear. TTL-LAMa therefore has a reconciliation mechanism that rebuilds the expected state from persisted leases.
 
-The command:
-
-```bash
-ttlama sync
-```
-
-triggers this reconciliation through the TTL-LAMa API.
+Reconciliation currently runs when the scheduler process starts, before APScheduler is started. It is not triggered by an API command and does not run periodically.
 Conceptually:
 
 ```text
@@ -289,7 +283,7 @@ It makes it possible to:
 - remove a peer that no longer corresponds to a valid lease;
 - correct a divergence between TTL-LAMa's persisted state and the backend's effective state.
 
-Reconciliation is therefore a mechanism for converging toward the desired state, not merely a recovery mechanism after startup.
+Reconciliation converges toward the desired state at startup. Drift that appears while the process is running is repaired only at the next scheduler restart.
 
 ### Lease Expiration
 
@@ -317,7 +311,7 @@ Two complementary mechanisms are therefore used:
 
 Because TTL-LAMa is a synchronous application, expiration is handled by a dedicated scheduling process. This process can use APScheduler or an equivalent mechanism. It is separate from the API workers, preventing a scheduler from being created in every HTTP worker.
 
-The current implementation uses APScheduler and sends WireGuard commands over SSH. The following sections also describe the intended deadline reconstruction and reconciliation, which are not yet implemented; see [Operations](operations.md) for the current limitations.
+The current implementation uses APScheduler and sends WireGuard commands over SSH. At startup it reconciles peers and restores expiration jobs, then starts polling pending operations. After consecutive failures, panic mode can run the administrator script and optionally send an email. See [Operations](operations.md) for the current limitations.
 
 The container architecture becomes:
 
@@ -345,7 +339,7 @@ Scheduler jobs are not a source of truth. Whenever the scheduler process starts 
 Startup follows this conceptual sequence:
 
 ```text
-scheduler start
+scheduler startup reconciliation
       |
       v
 load active leases
@@ -453,7 +447,7 @@ The responsibilities can ultimately be summarized as follows:
 | API | Creating, modifying, and revoking leases |
 | Scheduler | Triggering expirations at their deadlines |
 | WireGuard backend | Materializing and removing network access |
-| `ttlama sync` | Triggering reconciliation through the API |
+| Scheduler startup | Reconciling peers and restoring expiration jobs |
 | Reconciler | Converging valid leases and backend state |
 | Supervisor | Monitoring and restarting internal container processes |
 
@@ -464,6 +458,6 @@ This architecture aims to maintain the following invariant:
 > Network access materialized in a backend must exist only when it corresponds to a currently valid TTL-LAMa lease.
 
 The scheduler maintains this invariant during normal operation.
-Reconciliation provides recovery and convergence in the event of a restart, failure, or divergence.
+Reconciliation provides recovery on restart and corrects backend drift detected at that time.
 
 TTL-LAMa persistence remains the source of truth in all cases, while the network backend is only a materialization of the desired state.

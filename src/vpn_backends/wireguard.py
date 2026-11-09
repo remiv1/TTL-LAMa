@@ -113,14 +113,3 @@ class WireGuardBackend(VPNBackend):
         if not all(isinstance(item, dict) for item in items):
             raise RuntimeError("Invalid WireGuard lease list response")
         return cast(list[dict[str, object]], items)
-
-    def reconcile_all(self) -> None:
-        """Reconcile all Wireguard VPN leases.
-        
-        :raises NotImplementedError: If the method is not implemented.
-        """
-        raise NotImplementedError("Automatic reconciliation is not implemented")
-
-    def panic(self) -> None:
-        """Panic button for Wireguard VPN backend to revoke all leases immediately."""
-        raise NotImplementedError("Bulk revocation is not implemented")

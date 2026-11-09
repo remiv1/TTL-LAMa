@@ -90,6 +90,24 @@ def test_apply_schedules_expiration_and_expiry_removes_peer(
     assert session.get(LeaseProvisioning, lease_id).state == "deleted"
 
 
+def test_reconcile_applies_missing_peer_and_restores_expiration(
+    app: Flask,
+    lease_setup: tuple[LeaseScheduler, Mock, int],  # pylint: disable=W0621
+) -> None:
+    """Reconciliation applies a missing active peer and schedules its expiry."""
+    worker, backend, lease_id = lease_setup
+    backend.list_leases.return_value = []
+
+    worker.reconcile()
+
+    document = json.loads(backend.grant.call_args.args[0])
+    assert document["lease_id"] == str(lease_id)
+    assert document["interface"].startswith("wg-")
+    assert worker.scheduler.get_job(f"lease-expiry-{lease_id}") is not None
+    session = app.extensions["database_config"].session()
+    assert session.get(LeaseProvisioning, lease_id).state == "applied"
+
+
 def test_early_revocation_uses_original_document(
     app: Flask,
     lease_setup: tuple[LeaseScheduler, Mock, int], # pylint: disable=W0621
@@ -200,7 +218,7 @@ def test_expiration_during_job_registration_requests_deletion(
     add_job = worker.scheduler.add_job
 
     def expire_during_registration(*args: object, **kwargs: object) -> object:
-        job = add_job(*args, **kwargs)
+        job = add_job(*args, **kwargs)  # type: ignore
         session.get(Lease, lease_id).ended_at = utcnow() - timedelta(seconds=1)
         session.flush()
         return job

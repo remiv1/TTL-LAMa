@@ -4,13 +4,13 @@ This document describes the intended lifecycle of an access lease and how TTL-LA
 
 ## WireGuard Provisioning Status
 
-The scheduler sends leases to the VPN server over SSH with `sudo -n ttlama backend wg leases`. The API waits for confirmation of application or removal; on failure or timeout it returns an error and the lease identifier. The scheduler schedules removal at expiration and retries failed removals while it is running.
+Before starting APScheduler, the scheduler process reconciles WireGuard state against persisted leases. It reapplies missing or divergent active peers, removes peers without an active lease, and restores expiration jobs. WireGuard operations are sent over SSH with `sudo -n ttlama backend wg leases`. Reconciliation runs at startup, not periodically; pending operations and failed removals continue to be handled by the scheduler poll.
 
 Profile networks become the peer's `AllowedIPs`. On the same interface, reservations cannot share a public key or overlapping networks. A reservation remains occupied until deletion is confirmed. After an application with an uncertain result, it remains reserved even if a subsequent deletion succeeds: a delayed remote command may still change the peer.
 
 The file `/etc/ttl-lama/ssh_config.yml` configures the connection, private key and `known_hosts` file. Timeouts in seconds are configurable with `TTL_LAMA_SSH_COMMAND_TIMEOUT` (default 30), `TTL_LAMA_PROVISIONING_WAIT_SECONDS` (45) and `TTL_LAMA_SCHEDULER_POLL_INTERVAL` (1). The API wait should normally exceed the SSH timeout and polling interval.
 
-**Important limitation:** deadline reconstruction and reconciliation after restart are not implemented. Access may remain active after the scheduler stops, and an SSH application with an uncertain result can complete late. Check the VPN server state manually; this increment is not suitable for production without recovery and reconciliation.
+After `panic.retry` consecutive startup reconciliation failures (3 by default), panic mode runs the configured administrator script and independently attempts email notification when enabled. The scheduler does not perform any additional network action in panic mode. Because reconciliation is not periodic, drift that appears while the process is running is repaired only at the next scheduler restart.
 
 ## Lease Lifecycle
 

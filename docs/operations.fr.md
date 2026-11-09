@@ -4,13 +4,13 @@ Ce document décrit le cycle de vie prévu d’un bail d’accès et la manière
 
 ## État du provisionnement WireGuard
 
-Le scheduler transmet les baux au serveur VPN par SSH, avec `sudo -n ttlama backend wg leases`. L’API attend la confirmation de l’application ou de la suppression ; en cas d’échec ou de délai dépassé, elle renvoie une erreur et l’identifiant du bail. Le scheduler programme la suppression à l’échéance et retente les suppressions échouées tant qu’il fonctionne.
+Avant de démarrer APScheduler, le processus scheduler réconcilie l’état WireGuard avec les baux persistés. Il réapplique les peers actifs absents ou divergents, supprime les peers sans bail actif et restaure les jobs d’expiration. Les opérations WireGuard sont envoyées par SSH avec `sudo -n ttlama backend wg leases`. La réconciliation est exécutée au démarrage, pas périodiquement ; les opérations en attente et les suppressions échouées continuent d’être traitées par la scrutation du scheduler.
 
 Les réseaux du profil deviennent les `AllowedIPs` du pair. Sur une même interface, deux réservations ne peuvent pas partager une clé publique ni des réseaux qui se chevauchent. Une réservation reste occupée tant que la suppression n’est pas confirmée. Après une application au résultat incertain, elle reste réservée même si une suppression ultérieure réussit : une commande distante tardive peut encore modifier l’état du pair.
 
 Le fichier `/etc/ttl-lama/ssh_config.yml` définit la connexion, la clé privée et le fichier `known_hosts`. Les délais en secondes sont configurables par `TTL_LAMA_SSH_COMMAND_TIMEOUT` (30 par défaut), `TTL_LAMA_PROVISIONING_WAIT_SECONDS` (45) et `TTL_LAMA_SCHEDULER_POLL_INTERVAL` (1). L’attente API doit normalement dépasser le délai SSH et l’intervalle de scrutation.
 
-**Limite importante :** la reconstruction des échéances et la réconciliation après redémarrage ne sont pas encore implémentées. Un accès peut rester actif après l’arrêt du scheduler, et une application SSH au résultat incertain peut se terminer tardivement. Vérifiez manuellement l’état du serveur VPN ; cet incrément ne convient pas à la production sans mécanisme de reprise et de réconciliation.
+Après `panic.retry` échecs consécutifs de réconciliation au démarrage (3 par défaut), le mode panic lance le script administrateur configuré et tente séparément l’envoi du courriel si celui-ci est activé. Le scheduler ne réalise pas d’action réseau supplémentaire en mode panic. L’absence de réconciliation périodique signifie qu’une dérive apparue pendant l’exécution ne sera corrigée qu’au prochain redémarrage du scheduler.
 
 ## Cycle de vie d’un bail
 

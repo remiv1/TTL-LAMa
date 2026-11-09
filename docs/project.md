@@ -57,7 +57,8 @@ TTL-LAMa is intended to be open source and suitable for self-hosting.
 - [ ] Device management and public key registration
 - [ ] Access profiles and time-limited leases
 - [ ] Automatic expiration and manual revocation
-- [ ] Reconciliation and audit log
+- [x] Startup reconciliation
+- [ ] Audit log
 
 ### Phase 2: Integration
 

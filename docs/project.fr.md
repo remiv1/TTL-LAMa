@@ -57,7 +57,8 @@ TTL-LAMa a vocation à être open source et adapté à l’auto-hébergement.
 - [ ] Gestion des appareils et enregistrement des clés publiques
 - [ ] Profils d’accès et baux à durée déterminée
 - [ ] Expiration automatique et révocation manuelle
-- [ ] Réconciliation et journal d’audit
+- [x] Réconciliation au démarrage
+- [ ] Journal d’audit
 
 ### Phase 2 : intégration
 

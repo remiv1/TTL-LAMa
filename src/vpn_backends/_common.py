@@ -38,14 +38,6 @@ class VPNBackend(ABC):
         ... # pylint: disable=W2301
 
     @abstractmethod
-    def reconcile_all(self) -> None:
-        """Reconcile all VPN leases.
-
-        :raises NotImplementedError: If the method is not implemented by the subclass.
-        """
-        raise NotImplementedError()
-
-    @abstractmethod
-    def panic(self):
-        """Panic button for VPN backend to revoke all leases immediately."""
+    def list_leases(self) -> list[dict[str, object]]:
+        """List the peer state currently applied by the backend."""
         ... # pylint: disable=W2301
