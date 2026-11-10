@@ -42,25 +42,14 @@ class SSHConfiguration(BaseModel):
 
 
 def format_subprocess_failure(error: subprocess.CalledProcessError) -> str:
-    """Return a bounded, single-line failure summary for a subprocess.
+    """Return a failure summary without including subprocess output.
 
     :param error: The failed subprocess result.
     :type error: subprocess.CalledProcessError
-    :returns: Exit status and sanitized stderr, or a fallback when stderr is empty.
+    :returns: The subprocess exit status.
     :rtype: str
     """
-    stderr = error.stderr or ""
-    if isinstance(stderr, bytes):
-        stderr = stderr.decode("utf-8", errors="replace")
-    detail = " ".join(
-        "".join(
-            character if character.isprintable() else " " if character.isspace() else ""
-            for character in stderr
-        ).split()
-    )
-    if len(detail) > 512:
-        detail = detail[:509] + "..."
-    return f"exit status {error.returncode}: {detail or 'no stderr captured'}"
+    return f"exit status {error.returncode}"
 
 
 class SSHCommandExecutor:

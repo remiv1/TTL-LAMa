@@ -4,8 +4,10 @@ Provides database settings for different database engines based on environment v
 """
 import os
 from typing import Iterator
+from uuid import uuid4
 
 import pytest
+from sqlalchemy import create_engine, text
 
 from api.config import DatabaseSettings
 from api.config.c_databases import DbType
@@ -38,7 +40,7 @@ def _database_cases() -> list[tuple[str, str | None]]:
 
 
 @pytest.fixture(
-    scope="session",
+    scope="module",
     params=_database_cases(),
     ids=lambda case: case[0],
 )
@@ -56,23 +58,63 @@ def database_settings(
     from sqlalchemy.engine import make_url  # pylint: disable=C0415
 
     database_url = make_url(raw_url)
-    if engine_name == "postgresql":
+    test_database_name = f"ttlama_test_{uuid4().hex}"
+    administrative_url = database_url.set(
+        drivername=(
+            "postgresql+psycopg2"
+            if engine_name == "postgresql"
+            else database_url.drivername
+        ),
+        database="postgres" if engine_name == "postgresql" else None
+    )
+    administrative_engine = create_engine(
+        administrative_url,
+        isolation_level="AUTOCOMMIT",
+    )
+    database_created = False
+    try:
+        with administrative_engine.connect() as connection:
+            quoted_database_name = connection.dialect.identifier_preparer.quote(
+                test_database_name
+            )
+            connection.exec_driver_sql(f"CREATE DATABASE {quoted_database_name}")
+        database_created = True
+
+        if engine_name == "postgresql":
+            yield DatabaseSettings(
+                DB_TYPE=DbType.POSTGRESQL,
+                DB_HOST=database_url.host or "",
+                DB_PORT=database_url.port or 0,
+                DB_USER=database_url.username or "",
+                DB_PASSWORD=database_url.password or "",
+                DB_NAME=test_database_name,
+            )
+            return
+
+        driver_type = DbType.MARIADB if engine_name == "mariadb" else DbType.MYSQL
         yield DatabaseSettings(
-            DB_TYPE=DbType.POSTGRESQL,
+            DB_TYPE=driver_type,
             DB_HOST=database_url.host or "",
             DB_PORT=database_url.port or 0,
             DB_USER=database_url.username or "",
             DB_PASSWORD=database_url.password or "",
-            DB_NAME=database_url.database or "",
+            DB_NAME=test_database_name,
         )
-        return
-
-    driver_type = DbType.MARIADB if engine_name == "mariadb" else DbType.MYSQL
-    yield DatabaseSettings(
-        DB_TYPE=driver_type,
-        DB_HOST=database_url.host or "",
-        DB_PORT=database_url.port or 0,
-        DB_USER=database_url.username or "",
-        DB_PASSWORD=database_url.password or "",
-        DB_NAME=database_url.database or "",
-    )
+    finally:
+        if database_created:
+            with administrative_engine.connect() as connection:
+                quoted_database_name = connection.dialect.identifier_preparer.quote(
+                    test_database_name
+                )
+                if engine_name == "postgresql":
+                    connection.execute(
+                        text(
+                            "SELECT pg_terminate_backend(pid) "
+                            "FROM pg_stat_activity "
+                            "WHERE datname = :database_name "
+                            "AND pid <> pg_backend_pid()"
+                        ),
+                        {"database_name": test_database_name},
+                    )
+                connection.exec_driver_sql(f"DROP DATABASE {quoted_database_name}")
+        administrative_engine.dispose()

@@ -1,6 +1,6 @@
 # Operations
 
-This document describes the intended lifecycle of an access lease and how TTL-LAMa keeps the persisted desired state aligned with the access backend. The project is still at the design/prototype stage; these behaviors are not yet an operational runbook.
+This document describes the implemented lease lifecycle and the known operational limits of synchronization with the access backend.
 
 ## WireGuard Provisioning Status
 
@@ -14,28 +14,35 @@ After `panic.retry` consecutive startup reconciliation failures (3 by default), 
 
 ## Lease Lifecycle
 
-A lease follows an explicit lifecycle:
+Creation through `LeaseRepository.create()` validates the identity, device ownership and state, active profile assignment, profile policy, and requested duration. It stores `ended_at` using the UTC clock and creates a `pending_apply` provisioning operation with an immutable backend snapshot. The API status is computed, not persisted:
+
+| Computed API status | Condition, in priority order |
+| --- | --- |
+| `revoked` | `revoked_at` is set |
+| `expired` | `ended_at` has passed |
+| `pending` | Provisioning is not `applied` and no error is recorded |
+| `failed` | Provisioning is not `applied` and an error is recorded |
+| `active` | The lease is neither revoked nor expired and provisioning is applied |
+
+The API waits for provisioning confirmation before returning success; a failure or timeout returns an error and may trigger compensation.
+
+Persisted `LeaseProvisioning` states are distinct from the API status:
 
 ```text
-REQUESTED -> authorization -> ACTIVE -> EXPIRED
-                                  `-----> REVOKED
+pending_apply -> applying -> applied -> deleting -> deleted
+            |                      |
+            +-> pending_delete      +-> pending_delete (failure, retried)
+                 |                         |
+                 +-> deleting -------------+
+                    |
+                    +-> uncertain (compensation for failed application)
 ```
 
-Additional states such as `PENDING_APPROVAL`, `DENIED`, `SUSPENDED`, or `ERROR` may be introduced if concrete use cases require them. The number of states should remain as small as possible.
+`pending_apply` waits for application; `applying` is a claim written to the database while the backend call runs. `applied` confirms access and schedules expiration. Revocation or expiration immediately makes the lease invalid in domain state, then requests `pending_delete`; `deleting` is the database claim while removal runs. `deleted` confirms removal. If application fails, TTL-LAMa requests compensation; even after confirmed deletion, provisioning may remain `uncertain` because a delayed remote command could still apply the peer. A failed deletion returns to `pending_delete` and is retried by the poller. `applying` and `deleting` are therefore persisted temporarily, but are not final states. At startup reconciliation, each record is returned to `applied` or `deleted` according to desired state.
 
-An active lease is associated with an identity, a device, an access profile, and a duration. Its expiration is part of the desired state:
+### Expiration and Revocation
 
-```text
-expires_at <= now
-    => lease = EXPIRED
-    => provisioned_access = ABSENT
-```
-
-### Provisioning
-
-When a lease becomes active, TTL-LAMa asks the configured access backend to materialize it. For WireGuard, the relevant information includes the device public key, VPN address, access profile, and expiration.
-
-When the lease expires or is revoked, the backend must remove the corresponding access. A lease must not merely be marked `EXPIRED` or `REVOKED` while its network access remains provisioned.
+After application is confirmed, APScheduler schedules a job at `ended_at`. When it fires, the scheduler reloads the lease and requests deletion if it is revoked or expired. Explicit revocation sets `revoked_at` and also requests deletion; the API status becomes `revoked` before the backend operation completes. In both cases, the invariant is that access for a revoked or expired lease must not remain provisioned.
 
 ### Key Ownership
 
@@ -52,18 +59,21 @@ Storing a client private key should not be necessary for normal operation.
 
 ## Reconciliation
 
-TTL-LAMa must not rely exclusively on a scheduled task running at the exact expiration time. If the application stops before a lease expires and restarts later, the expired access must still be removed.
+When the scheduler process starts, before APScheduler, `LeaseScheduler.reconcile()` compares desired database state with peers observed from the backend. It applies missing or divergent active peers, removes peers without an active lease, restores jobs for still-valid leases, and handles expired leases immediately. A lease that expired while the process was stopped therefore does not regain access after restart.
 
-The system periodically compares:
+Full reconciliation does not run periodically. After startup, the scheduler polls only `pending_apply`, `pending_delete`, and `uncertain` operations; this poll is not a full comparison of all peers. Backend drift that appears during execution is repaired only at the next scheduler restart.
 
 ```text
-Desired state (database) <-> TTL-LAMa <-> Actual state (access backend)
+Desired database state + observed backend state
+          |
+          +-- startup: full reconciliation and expiration-job restoration
+          `-- runtime: poll pending operations
 ```
 
 The invariants are:
 
 ```text
-if expires_at <= now:        access must not exist
+if ended_at <= now:          access must not exist
 if the lease is revoked:     access must not exist
 if the lease is active:      access must match the lease
 ```
@@ -79,3 +89,20 @@ The database is the persistent representation of desired state; the access backe
 5. At expiration, or after explicit revocation, TTL-LAMa removes the peer.
 
 If Alice authenticates through an external identity provider, the lease flow remains the same after authentication.
+
+## Audit Events
+
+Each line uses the process-specific UTC format: `[TTL-LAMa API]-[yyyy-mm-dd HH:mm:ss] : <operation>-<Log>` or `[TTL-LAMa Scheduler]-[yyyy-mm-dd HH:mm:ss] : <operation>-<Log>`. The result is included in the message (`succeeded`, `failed`, `requested`, or `superseded`); `INFO`, `WARNING`, and `ERROR` levels route events to their history files.
+
+| Operations | Origin and recorded result | Permitted metadata |
+| --- | --- | --- |
+| `lease.create`, `lease.revoke` | API: success after commit or validation/persistence failure | Lease/device/profile IDs on success where available; error class on failure |
+| `lease.apply`, `lease.delete` | API: result confirmed by the scheduler, including failure or timeout | Lease ID and HTTP status |
+| `lease.provisioning.apply`, `lease.provisioning.delete` | Scheduler: backend operation result | Lease ID and error class or exit code |
+| `lease.expire` | Scheduler: deletion requested and expiration removed | Lease ID |
+| `device.revoke` | API: device revocation after commit | Device ID |
+| `reconciliation.startup` | Scheduler: each startup attempt and final result | Attempt number and error class |
+| `reconciliation.run` | Scheduler: successful reconciliation | Lease count and active peer count |
+| `provisioning.poll`, `panic.script`, `panic.email` | Scheduler: polling errors or panic action results | Error class only |
+
+Metadata excludes passwords, secret values, raw tokens, private keys, complete public keys, request bodies, remote `stderr`, and raw exception messages. `lease.create` is logged after the domain commit; `lease.apply` separately records backend confirmation. Likewise, `lease.revoke` precedes the backend result `lease.delete`. A failed deletion remains pending and is logged as a `lease.provisioning.delete` failure before retry. Startup reconciliation and provisioning failures should trigger operational alerts; panic mode can run the administrator script after the configured retry count. These logs are diagnostic and do not replace an immutable or transactional audit ledger.

@@ -16,7 +16,9 @@ from typing import TYPE_CHECKING
 from apscheduler.schedulers.blocking import BlockingScheduler
 from sqlalchemy.exc import SQLAlchemyError
 
+from api.config import FlaskSettings
 from api.config.c_databases import DatabaseConfig, Settings
+from api.logging_config import configure_logging, log_event
 from scheduler.leases import LeaseScheduler
 from scheduler.panic import PanicMode, PanicSettings
 from scheduler.ssh import format_subprocess_failure
@@ -25,6 +27,7 @@ if TYPE_CHECKING:
     from scheduler_types import ScheduledJobs
 
 logger = logging.getLogger(__name__)
+_STARTUP_RECONCILIATION_OPERATION = "reconciliation.startup"
 
 
 def _schedule_poll(
@@ -61,28 +64,45 @@ def _reconcile_on_startup(
             ValueError,
         ) as error:
             if isinstance(error, subprocess.CalledProcessError):
-                logger.warning(
-                    "Startup reconciliation failed (%s/%s; %s)",
-                    attempt,
-                    attempts,
-                    format_subprocess_failure(error),
-                )
+                detail = format_subprocess_failure(error)
             else:
-                logger.warning(
-                    "Startup reconciliation failed (%s/%s; %s)",
-                    attempt,
-                    attempts,
-                    type(error).__name__,
-                )
+                detail = type(error).__name__
+            log_event(
+                logger,
+                logging.WARNING,
+                _STARTUP_RECONCILIATION_OPERATION,
+                "failed attempt=%s/%s error=%s",
+                attempt,
+                attempts,
+                detail,
+            )
         else:
+            log_event(
+                logger,
+                logging.INFO,
+                "reconciliation.startup",
+                "succeeded attempt=%s/%s",
+                attempt,
+                attempts,
+            )
             return True
+    log_event(
+        logger,
+        logging.ERROR,
+        _STARTUP_RECONCILIATION_OPERATION,
+        "failed after %s attempts",
+        attempts,
+    )
     panic_mode.trigger(f"Reconciliation failed after {attempts} attempts.")
     return False
 
 
 def main() -> None:
     """Main entry point for the TTL-LAMa scheduler."""
-    logger.info("Starting TTL-LAMa scheduler")
+    configure_logging("Scheduler", os.environ.get("TTL_LAMA_LOG_LEVEL", "info"))
+    flask_settings = FlaskSettings()
+    configure_logging("Scheduler", flask_settings.LOG_LEVEL)
+    log_event(logger, logging.INFO, "scheduler.start", "started")
 
     scheduler = BlockingScheduler(timezone=timezone.utc)
     panic_mode = PanicMode(PanicSettings.from_file())
@@ -97,7 +117,7 @@ def main() -> None:
     try:
         scheduler.start()   # type: ignore
     except (KeyboardInterrupt, SystemExit): # NOSONAR
-        logger.info("Stopping TTL-LAMa scheduler")
+        log_event(logger, logging.INFO, "scheduler.stop", "stopped")
     finally:
         database.close()
 

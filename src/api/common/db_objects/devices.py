@@ -58,6 +58,7 @@ class Device(Base):
     public_key: Mapped[str] = mapped_column(
         String(512),
         nullable=False,
+        unique=True,
         comment="Public key of the device",
     )
     created_at: Mapped[datetime] = created_at_column()

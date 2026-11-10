@@ -59,6 +59,21 @@ A Flask secret mounted at `secrets/flask_secret_key` takes precedence. If it is 
 
 For production, explicitly set the environment, disable debug mode, and enable HTTPS enforcement and `Secure` cookies. Setting only `FLASK_ENV=production` is not enough: startup is rejected while `DEBUG` remains enabled. For example, the override variables are `TTL_LAMA_FLASK_ENV=production`, `TTL_LAMA_DEBUG=false`, `TTL_LAMA_ENFORCE_SECURE_CONNECTION=true`, and `TTL_LAMA_SESSION_COOKIE_SECURE=true`. In production, a warning is logged while the administrator still uses the initial password. Authenticated API endpoint `GET /auth/security-status` exposes only the boolean indicator `default_admin_password_in_use`.
 
+### Configuration Errors and Secrets
+
+Settings are loaded from defaults, then YAML and environment variables (`TTL_LAMA_*`); environment variables take precedence over YAML. A `_FILE` setting is a separate value source: do not configure both a direct value and a file for the same secret, as validation rejects the conflict. Mounted secret files must be readable by the unprivileged `ttl-lama` user. A missing or unreadable file fails validation and prevents startup; errors identify the setting without displaying the secret contents or path. Malformed or non-object YAML prevents configuration loading; the configuration API returns a generic error without the file contents. Values and types outside the settings schema are rejected by the settings models. Profile-name and public-key uniqueness constraints apply to tables created for a new database; `create_all()` does not upgrade existing tables. Existing installations must plan a separate migration before relying on these constraints.
+
+### Logs
+
+The API and scheduler write to the persistent `/data/logs` volume, with one file per severity: `error.log`, `warning.log`, `info.log`, and `debug.log`. Lines use UTC timestamps and identify the emitting process:
+
+```text
+[TTL-LAMa API]-[yyyy-mm-dd HH:mm:ss] : <operation>-<Log>
+[TTL-LAMa Scheduler]-[yyyy-mm-dd HH:mm:ss] : <operation>-<Log>
+```
+
+Archives rotate daily at midnight UTC and retain 30 rotations. The directory is private (`0700`) and files are readable only by the application account (`0600`). The `/data` volume must therefore be persistent and writable by TTL-LAMa; a missing, unwritable, or overly permissive log directory prevents the processes from starting. The default `/data/logs` path can be overridden with `TTL_LAMA_LOG_DIRECTORY`. `app.log_level` sets the minimum recorded severity (`info` by default); set it to `debug` to populate `debug.log`. Gunicorn HTTP access logs are disabled to avoid archiving sensitive paths or parameters. Logs exclude secrets, raw tokens, private keys, complete public keys, request bodies, and remote stderr output.
+
 Example:
 
 ```yaml

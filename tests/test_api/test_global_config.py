@@ -1,6 +1,7 @@
 """Tests for administrative global configuration endpoints."""
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 from typing import cast
 
@@ -8,7 +9,10 @@ import pytest
 import yaml
 from flask import Flask
 from flask.testing import FlaskClient
+from pydantic import ValidationError
 from werkzeug.test import TestResponse
+
+from api.config import FlaskSettings
 
 
 def _valid_configuration() -> dict[str, object]:
@@ -272,3 +276,92 @@ def test_apply_global_config_rejects_redacted_candidate_without_writing(
 
     assert response.status_code == 400
     assert config_path.read_text(encoding="utf-8") == original_contents
+
+
+def test_global_config_yaml_error_does_not_expose_contents(
+    domain: object,
+    caplog: pytest.LogCaptureFixture,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Malformed YAML errors stay generic in both the API response and log."""
+    secret = "yaml-secret-sentinel"
+    config_path = tmp_path / "malformed.yml"
+    config_path.write_text(f"app: [{secret}", encoding="utf-8")
+    monkeypatch.setenv("TTL_LAMA_CONFIG_FILE", str(config_path))
+    caplog.set_level(logging.ERROR)
+
+    response = getattr(domain, "client").get(
+        "/api/v1/global-config",
+        headers=_admin_headers(domain),
+    )
+
+    assert response.status_code == 500
+    assert response.get_json() == {"error": "Unable to read the application configuration."}
+    assert secret not in response.get_data(as_text=True)
+    assert secret not in " ".join(record.getMessage() for record in caplog.records)
+
+
+@pytest.mark.parametrize("secret_file_state", ["missing", "unreadable"])
+def test_secret_file_errors_are_generic(
+    secret_file_state: str,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Missing and unreadable authentication secret files produce generic errors."""
+    secret_path = tmp_path / "auth-secret"
+    secret = "authentication-secret-sentinel"
+    if secret_file_state == "unreadable":
+        secret_path.write_text(secret, encoding="utf-8")
+        original_read_text = Path.read_text
+
+        def deny_secret_read(
+            path: Path,
+            encoding: str | None = None,
+            errors: str | None = None,
+        ) -> str:
+            if path == secret_path:
+                raise PermissionError("simulated secret-file denial")
+            return original_read_text(path, encoding=encoding, errors=errors)
+
+        monkeypatch.setattr(Path, "read_text", deny_secret_read)
+    monkeypatch.setenv("TTL_LAMA_CONFIG_FILE", str(tmp_path / "absent-config.yml"))
+    monkeypatch.delenv("TTL_LAMA_SECRET_KEY", raising=False)
+
+    with pytest.raises(ValidationError) as error:
+        FlaskSettings(
+            FLASK_ENV="testing",
+            SECRET_KEY_FILE=secret_path,
+            ENFORCE_SECURE_CONNECTION=False,
+            SESSION_COOKIE_SECURE=False,
+        )  # type: ignore[call-arg]
+
+    assert "Impossible de lire le fichier secret SECRET_KEY" in str(error.value)
+    assert secret not in str(error.value)
+    assert str(secret_path) not in str(error.value)
+
+
+def test_secret_file_override_conflict_does_not_expose_secret_values(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Environment file overrides cannot combine with a YAML direct secret."""
+    direct_secret = "yaml-direct-secret-sentinel"
+    file_secret = "file-secret-sentinel"
+    configuration = _valid_configuration()
+    cast(dict[str, object], configuration["app"])["secret_key"] = direct_secret
+    config_path = tmp_path / "config.yml"
+    _write_config(config_path, configuration)
+    secret_path = tmp_path / "flask-secret"
+    secret_path.write_text(file_secret, encoding="utf-8")
+    monkeypatch.setenv("TTL_LAMA_CONFIG_FILE", str(config_path))
+    monkeypatch.setenv("TTL_LAMA_SECRET_KEY_FILE", str(secret_path))
+    monkeypatch.delenv("TTL_LAMA_SECRET_KEY", raising=False)
+
+    with pytest.raises(ValidationError) as error:
+        FlaskSettings()
+
+    message = str(error.value)
+    assert "Configurer SECRET_KEY ou son fichier, pas les deux" in message
+    assert direct_secret not in message
+    assert file_secret not in message

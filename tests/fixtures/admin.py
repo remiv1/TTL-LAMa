@@ -26,7 +26,9 @@ def domain(app: Flask) -> Domain:
     profiles = ProfileRepository(session)
     profile = profiles.create(f"profile-{uuid4().hex}", AccessProfile.model_validate(POLICY))
     assignment = profiles.assign(user, profile)
-    device = Device(user_id=str(user.id), name="laptop", public_key="public-key")
+    device = Device(
+        user_id=str(user.id), name="laptop", public_key=f"public-key-{uuid4().hex}"
+    )
     session.add(device)
     session.flush()
     lease = Lease(

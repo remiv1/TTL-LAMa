@@ -16,6 +16,7 @@
 """
 from __future__ import annotations
 
+import logging
 from datetime import datetime, timezone
 from typing import cast
 
@@ -28,6 +29,7 @@ from werkzeug.exceptions import HTTPException
 from requests.exceptions import RequestException
 
 from api.database import get_session
+from api.logging_config import log_event
 from api.common.db_objects import User
 from api.common.db_objects.sessions import Session as UserSession
 from api.common.other_objects import PasswordChange
@@ -67,6 +69,8 @@ global_config = Blueprint(
     __name__,
     url_prefix="/global-config",
 )
+_OIDC_DEVICE_START_OPERATION = "auth.oidc.device.start"
+_OIDC_DEVICE_POLL_OPERATION = "auth.oidc.device.poll"
 
 
 @global_config.before_request
@@ -93,8 +97,14 @@ def get_global_config() -> Response | tuple[Response, int]:
     """Read the current YAML configuration with direct secrets masked."""
     try:
         return jsonify(redact_secrets(load_configuration()))
-    except GlobalConfigError:
-        current_app.logger.exception("Unable to read the application configuration")
+    except GlobalConfigError as error:
+        log_event(
+            current_app.logger,
+            logging.ERROR,
+            "config.read",
+            "configuration read failed error=%s",
+            type(error).__name__,
+        )
         return jsonify(error="Unable to read the application configuration."), 500
 
 
@@ -115,8 +125,14 @@ def compare_global_config() -> tuple[Response, int] | Response:
 
     try:
         unchanged = unchanged_secret_paths(candidate)
-    except GlobalConfigError:
-        current_app.logger.exception("Unable to compare application secrets")
+    except GlobalConfigError as error:
+        log_event(
+            current_app.logger,
+            logging.ERROR,
+            "config.compare",
+            "secret comparison failed error=%s",
+            type(error).__name__,
+        )
         return jsonify(error="Unable to compare application secrets."), 500
     return jsonify(unchanged_secrets=unchanged)
 
@@ -131,8 +147,14 @@ def apply_global_config() -> tuple[Response, int] | Response:
 
     try:
         write_configuration(cast(dict[str, object], candidate))
-    except GlobalConfigError:
-        current_app.logger.exception("Unable to write the application configuration")
+    except GlobalConfigError as error:
+        log_event(
+            current_app.logger,
+            logging.ERROR,
+            "config.write",
+            "configuration write failed error=%s",
+            type(error).__name__,
+        )
         return jsonify(error="Unable to write the application configuration."), 500
 
     mounted = is_volume_mounted(configuration_path())
@@ -254,10 +276,22 @@ def begin_oidc_device_authorization() -> tuple[Response, int] | Response:
             cast(str, app_config["OIDC_CLIENT_SECRET"]),
         )
     except RuntimeError as error:
-        current_app.logger.warning("Unable to start OIDC device authorization: %s", error)
+        log_event(
+            current_app.logger,
+            logging.WARNING,
+            _OIDC_DEVICE_START_OPERATION,
+            "unavailable error=%s",
+            type(error).__name__,
+        )
         return _no_store(jsonify(error="OIDC device authorization is unavailable")), 501
-    except (OIDCAuthenticationError, RequestException, ValueError, KeyError):
-        current_app.logger.exception("Unable to start OIDC device authorization")
+    except (OIDCAuthenticationError, RequestException, ValueError, KeyError) as error:
+        log_event(
+            current_app.logger,
+            logging.ERROR,
+            _OIDC_DEVICE_START_OPERATION,
+            "authorization request failed error=%s",
+            type(error).__name__,
+        )
         return _no_store(jsonify(error="Unable to start OIDC device authorization")), 502
 
     return _no_store(jsonify(response_data))
@@ -282,10 +316,22 @@ def poll_oidc_device_authorization() -> tuple[Response, int] | Response:
             cast(str, app_config["OIDC_CLIENT_SECRET"]),
         )
     except RuntimeError as error:
-        current_app.logger.warning("Unable to poll OIDC device authorization: %s", error)
+        log_event(
+            current_app.logger,
+            logging.WARNING,
+            _OIDC_DEVICE_POLL_OPERATION,
+            "unavailable error=%s",
+            type(error).__name__,
+        )
         return _no_store(jsonify(error="OIDC device authorization is unavailable")), 501
-    except (OIDCAuthenticationError, RequestException, ValueError, KeyError):
-        current_app.logger.exception("Unable to poll OIDC device authorization")
+    except (OIDCAuthenticationError, RequestException, ValueError, KeyError) as error:
+        log_event(
+            current_app.logger,
+            logging.ERROR,
+            _OIDC_DEVICE_POLL_OPERATION,
+            "authorization poll failed error=%s",
+            type(error).__name__,
+        )
         return _no_store(jsonify(error="Unable to poll OIDC device authorization")), 502
 
     if result.get("status") != "complete":
@@ -295,6 +341,12 @@ def poll_oidc_device_authorization() -> tuple[Response, int] | Response:
         return _no_store(jsonify(error="OIDC provider returned an invalid identity")), 502
 
     authentication = get_manager().create_session(user)
+    log_event(
+        current_app.logger,
+        logging.INFO,
+        _OIDC_DEVICE_POLL_OPERATION,
+        "succeeded",
+    )
     return _no_store(jsonify(
         status="complete",
         access_token=authentication.session_token,

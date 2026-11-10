@@ -98,7 +98,7 @@ services:
       TTL_LAMA_CONFIG_FILE: /dev/null
       TTL_LAMA_TEST_DATABASES: sqlite,postgresql,mariadb,mysql
       TTL_LAMA_TEST_WIREGUARD_BACKEND: wireguard-backend
-      TTL_LAMA_TEST_POSTGRESQL_URL: postgresql+psycopg://ttl_lama_test:test-only-password@postgres:5432/ttl_lama_test
+      TTL_LAMA_TEST_POSTGRESQL_URL: postgresql+psycopg2://ttl_lama_test:test-only-password@postgres:5432/ttl_lama_test
       TTL_LAMA_TEST_MARIADB_URL: mariadb+pymysql://root:test-only-password@mariadb:3306/ttl_lama_test
       TTL_LAMA_TEST_MYSQL_URL: mysql+pymysql://root:test-only-password@mysql:3306/ttl_lama_test
     volumes:

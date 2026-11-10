@@ -44,6 +44,7 @@
 """
 from __future__ import annotations
 
+import logging
 import math
 import os
 import secrets
@@ -70,6 +71,7 @@ from api.common.repositories import (
 from api.common.repositories.leases import lease_status, utcnow
 from api.config.c_profiles import AccessProfile
 from api.database import get_session
+from api.logging_config import log_event
 from auth.backends.internal import InternalAuthBackend
 from auth.decorators import require_admin
 from auth.manager import get_manager
@@ -274,6 +276,16 @@ def wait_for_lease(lease_id: int, *, operation: Literal["apply", "delete"]) -> t
             time.monotonic() >= deadline,
         )
         if result is not None:
+            succeeded = result[1] in (200, 201)
+            log_event(
+                current_app.logger,
+                logging.INFO if succeeded else logging.WARNING,
+                f"lease.{operation}",
+                "%s lease_id=%s status=%s",
+                "succeeded" if succeeded else "failed",
+                lease_id,
+                result[1],
+            )
             return result
         time.sleep(min(0.1, max(0, deadline - time.monotonic())))
 
@@ -337,7 +349,13 @@ def database_error(error: SQLAlchemyError) -> tuple[Response, int]:
     get_session().rollback()
     if isinstance(error, IntegrityError):
         return jsonify(error="Operation conflicts with existing data"), 409
-    current_app.logger.error("Admin database operation failed: %s", type(error).__name__)
+    log_event(
+        current_app.logger,
+        logging.ERROR,
+        "database.request",
+        "failed error=%s",
+        type(error).__name__,
+    )
     return jsonify(error="Database operation failed"), 500
 
 
@@ -484,9 +502,27 @@ def block_device(device_id: int) -> tuple[Response, int]:
 @admin.delete("/devices/<int:device_id>")
 def delete_device(device_id: int) -> tuple[Response, int]:
     """Logically delete a device using its revocation state."""
-    repository = DeviceRepository(get_session())
-    repository.block(repository.get(device_id))
-    get_session().commit()
+    try:
+        repository = DeviceRepository(get_session())
+        repository.block(repository.get(device_id))
+        get_session().commit()
+    except (HTTPException, ValueError, SQLAlchemyError) as error:
+        log_event(
+            current_app.logger,
+            logging.WARNING if isinstance(error, (HTTPException, ValueError)) else logging.ERROR,
+            "device.revoke",
+            "failed device_id=%s error=%s",
+            device_id,
+            type(error).__name__,
+        )
+        raise
+    log_event(
+        current_app.logger,
+        logging.INFO,
+        "device.revoke",
+        "succeeded device_id=%s",
+        device_id,
+    )
     return Response(status=204), 204
 
 
@@ -509,9 +545,27 @@ def get_lease(lease_id: int) -> Response:
 @admin.post("/leases/<int:lease_id>/revoke")
 def revoke_lease(lease_id: int) -> tuple[Response, int]:
     """Revoke a lease without deleting history."""
-    repository = LeaseRepository(get_session())
-    lease = repository.revoke(repository.get(lease_id))
-    get_session().commit()
+    try:
+        repository = LeaseRepository(get_session())
+        lease = repository.revoke(repository.get(lease_id))
+        get_session().commit()
+    except (HTTPException, ValueError, SQLAlchemyError) as error:
+        log_event(
+            current_app.logger,
+            logging.WARNING if isinstance(error, (HTTPException, ValueError)) else logging.ERROR,
+            "lease.revoke",
+            "failed lease_id=%s error=%s",
+            lease_id,
+            type(error).__name__,
+        )
+        raise
+    log_event(
+        current_app.logger,
+        logging.INFO,
+        "lease.revoke",
+        "succeeded lease_id=%s",
+        lease_id,
+    )
     return wait_for_lease(lease.id, operation="delete")
 
 

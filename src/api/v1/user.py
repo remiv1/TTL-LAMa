@@ -14,11 +14,13 @@
 """
 from __future__ import annotations
 
-from flask import Blueprint, Response, jsonify
+import logging
+from flask import Blueprint, Response, current_app, jsonify
 from sqlalchemy.exc import SQLAlchemyError
 from werkzeug.exceptions import HTTPException
 
 from api.common.repositories import DeviceRepository, LeaseRepository
+from api.logging_config import log_event
 from auth.decorators import get_authenticated_user, require_authenticated_user
 from .admin import (
     body,
@@ -87,6 +89,13 @@ def delete_device(device_id: int) -> tuple[Response, int]:
     device = repository.get_owned(device_id, str(get_authenticated_user().id))
     repository.block(device)
     get_session().commit()
+    log_event(
+        current_app.logger,
+        logging.INFO,
+        "device.revoke",
+        "succeeded device_id=%s",
+        device_id,
+    )
     return Response(status=204), 204
 
 
@@ -109,22 +118,60 @@ def get_lease(lease_id: int) -> Response:
 @user_api.post("/leases")
 def create_lease() -> tuple[Response, int]:
     """Create a lease subject to the user's device and profile policy."""
-    data = body(LeaseCreate)
-    lease = LeaseRepository(get_session()).create(
-        user_id=str(get_authenticated_user().id),
-        device_id=data.device_id,
-        profile_id=data.profile_id,
-        duration=data.duration,
+    user_id = str(get_authenticated_user().id)
+    try:
+        data = body(LeaseCreate)
+        lease = LeaseRepository(get_session()).create(
+            user_id=user_id,
+            device_id=data.device_id,
+            profile_id=data.profile_id,
+            duration=data.duration,
+        )
+        get_session().commit()
+    except (HTTPException, ValueError, SQLAlchemyError) as error:
+        log_event(
+            current_app.logger,
+            logging.WARNING if isinstance(error, (HTTPException, ValueError)) else logging.ERROR,
+            "lease.create",
+            "failed error=%s",
+            type(error).__name__,
+        )
+        raise
+    log_event(
+        current_app.logger,
+        logging.INFO,
+        "lease.create",
+        "succeeded lease_id=%s user_id=%s device_id=%s profile_id=%s",
+        lease.id,
+        user_id,
+        data.device_id,
+        data.profile_id,
     )
-    get_session().commit()
     return wait_for_lease(lease.id, operation="apply")
 
 
 @user_api.post("/leases/<int:lease_id>/revoke")
 def revoke_lease(lease_id: int) -> tuple[Response, int]:
     """Revoke an owned lease without deleting its history."""
-    repository = LeaseRepository(get_session())
-    lease = repository.get_owned(lease_id, str(get_authenticated_user().id))
-    repository.revoke(lease)
-    get_session().commit()
+    try:
+        repository = LeaseRepository(get_session())
+        lease = repository.get_owned(lease_id, str(get_authenticated_user().id))
+        repository.revoke(lease)
+        get_session().commit()
+    except (HTTPException, ValueError, SQLAlchemyError) as error:
+        log_event(
+            current_app.logger,
+            logging.WARNING if isinstance(error, (HTTPException, ValueError)) else logging.ERROR,
+            "lease.revoke",
+            "failed error=%s",
+            type(error).__name__,
+        )
+        raise
+    log_event(
+        current_app.logger,
+        logging.INFO,
+        "lease.revoke",
+        "succeeded lease_id=%s",
+        lease_id,
+    )
     return wait_for_lease(lease.id, operation="delete")

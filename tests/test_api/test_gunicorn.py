@@ -20,7 +20,11 @@ def load_gunicorn_settings(monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
     monkeypatch.setattr(
         config,
         "FlaskSettings",
-        Mock(return_value=SimpleNamespace(SERVER_HOST="127.0.0.1", SERVER_PORT=8000)),
+        Mock(return_value=SimpleNamespace(
+            SERVER_HOST="127.0.0.1",
+            SERVER_PORT=8000,
+            LOG_LEVEL="info",
+        )),
     )
     configuration = Path(__file__).resolve().parents[2] / "src" / "gunicorn_conf.py"
     return runpy.run_path(str(configuration))

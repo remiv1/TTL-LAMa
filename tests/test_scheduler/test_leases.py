@@ -69,8 +69,10 @@ def lease_setup(app: Flask) -> tuple[LeaseScheduler, Mock, int]:
 def test_apply_schedules_expiration_and_expiry_removes_peer(
     app: Flask,
     lease_setup: tuple[LeaseScheduler, Mock, int], # pylint: disable=W0621
+    caplog: pytest.LogCaptureFixture,
 ) -> None:
     """Application schedules expiration and the expired peer is removed."""
+    caplog.set_level("INFO")
     worker, backend, lease_id = lease_setup
     worker.poll()
     document = json.loads(backend.grant.call_args.args[0])
@@ -88,6 +90,11 @@ def test_apply_schedules_expiration_and_expiry_removes_peer(
     backend.revoke.assert_called_once()
     session = app.extensions["database_config"].session()
     assert session.get(LeaseProvisioning, lease_id).state == "deleted"
+    assert any(
+        getattr(record, "operation", None) == "lease.expire"
+        and "succeeded" in record.getMessage()
+        for record in caplog.records
+    )
 
 
 def test_reconcile_applies_missing_peer_and_restores_expiration(
@@ -106,6 +113,55 @@ def test_reconcile_applies_missing_peer_and_restores_expiration(
     assert worker.scheduler.get_job(f"lease-expiry-{lease_id}") is not None
     session = app.extensions["database_config"].session()
     assert session.get(LeaseProvisioning, lease_id).state == "applied"
+
+
+def test_reconcile_after_expiration_removes_peer_without_restoring_job(
+    app: Flask,
+    lease_setup: tuple[LeaseScheduler, Mock, int],  # pylint: disable=W0621
+) -> None:
+    """A restarted scheduler removes an expired peer and does not restore its job."""
+    worker, backend, lease_id = lease_setup
+    session = app.extensions["database_config"].session()
+    lease = session.get(Lease, lease_id)
+    lease.ended_at = utcnow() - timedelta(seconds=1)
+    session.commit()
+    document = session.get(LeaseProvisioning, lease_id).document
+    backend.list_leases.return_value = [{
+        "interface": document["interface"],
+        "identity": document["public_key"],
+        "addresses": document["addresses"],
+    }]
+
+    worker.reconcile()
+
+    backend.grant.assert_not_called()
+    backend.revoke.assert_called_once()
+    assert worker.scheduler.get_job(f"lease-expiry-{lease_id}") is None
+    session = app.extensions["database_config"].session()
+    assert session.get(LeaseProvisioning, lease_id).state == "deleted"
+
+
+def test_reconcile_recovers_uncertain_active_lease(
+    app: Flask,
+    lease_setup: tuple[LeaseScheduler, Mock, int],  # pylint: disable=W0621
+) -> None:
+    """Startup reconciliation reapplies an active lease with uncertain provisioning."""
+    worker, backend, lease_id = lease_setup
+    session = app.extensions["database_config"].session()
+    record = session.get(LeaseProvisioning, lease_id)
+    record.state = "uncertain"
+    record.error = "apply_failed"
+    session.commit()
+    backend.list_leases.return_value = []
+
+    worker.reconcile()
+
+    backend.grant.assert_called_once()
+    assert worker.scheduler.get_job(f"lease-expiry-{lease_id}") is not None
+    session = app.extensions["database_config"].session()
+    record = session.get(LeaseProvisioning, lease_id)
+    assert record.state == "applied"
+    assert record.error is None
 
 
 def test_early_revocation_uses_original_document(
@@ -128,16 +184,25 @@ def test_early_revocation_uses_original_document(
 def test_failed_apply_requests_compensation(
     app: Flask,
     lease_setup: tuple[LeaseScheduler, Mock, int], # pylint: disable=W0621
+    caplog: pytest.LogCaptureFixture,
 ) -> None:
     """An SSH error revokes the bail and retains an uncertain reservation."""
     worker, backend, lease_id = lease_setup
-    backend.grant.side_effect = OSError("SSH unavailable")
+    secret = "scheduler-error-secret-sentinel"
+    backend.grant.side_effect = OSError(secret)
+    caplog.set_level("WARNING")
     worker.poll()
     session = app.extensions["database_config"].session()
     assert session.get(Lease, lease_id).revoked_at is not None
     record = session.get(LeaseProvisioning, lease_id)
     assert record.state == "pending_delete"
     assert record.error == "apply_failed"
+    assert any(
+        getattr(entry, "operation", None) == "lease.provisioning.apply"
+        and "failed" in entry.getMessage()
+        for entry in caplog.records
+    )
+    assert secret not in " ".join(entry.getMessage() for entry in caplog.records)
     worker.poll()
     session = app.extensions["database_config"].session()
     assert session.get(LeaseProvisioning, lease_id).state == "uncertain"
@@ -188,8 +253,10 @@ def test_revocation_during_apply_is_not_overwritten(
 def test_failed_delete_is_retried(
     app: Flask,
     lease_setup: tuple[LeaseScheduler, Mock, int], # pylint: disable=W0621
+    caplog: pytest.LogCaptureFixture,
 ) -> None:
     """A failed deletion keeps its reservation and is retried."""
+    caplog.set_level("INFO")
     worker, backend, lease_id = lease_setup
     worker.poll()
     session = app.extensions["database_config"].session()
@@ -201,10 +268,20 @@ def test_failed_delete_is_retried(
     record = session.get(LeaseProvisioning, lease_id)
     assert record.state == "pending_delete"
     assert record.error == "delete_failed"
+    assert any(
+        getattr(entry, "operation", None) == "lease.provisioning.delete"
+        and "failed" in entry.getMessage()
+        for entry in caplog.records
+    )
     worker.poll()
     session = app.extensions["database_config"].session()
     assert session.get(LeaseProvisioning, lease_id).state == "deleted"
     assert backend.revoke.call_count == 2
+    assert any(
+        getattr(entry, "operation", None) == "lease.provisioning.delete"
+        and "succeeded" in entry.getMessage()
+        for entry in caplog.records
+    )
 
 
 def test_expiration_during_job_registration_requests_deletion(

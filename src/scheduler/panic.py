@@ -22,6 +22,8 @@ from typing import Literal, cast
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from api.logging_config import log_event
+
 LOGGER = logging.getLogger(__name__)
 DEFAULT_CONFIG_FILE = Path("/etc/ttl-lama/config.yml")
 SCRIPT_TIMEOUT_SECONDS = 30
@@ -166,13 +168,29 @@ class PanicMode:    # pylint: disable=R0903
                     timeout=SCRIPT_TIMEOUT_SECONDS,
                 )
             except (OSError, subprocess.SubprocessError) as error:
-                LOGGER.warning("Panic script failed (%s)", type(error).__name__)
+                log_event(
+                    LOGGER,
+                    logging.WARNING,
+                    "panic.script",
+                    "failed error=%s",
+                    type(error).__name__,
+                )
+            else:
+                log_event(LOGGER, logging.INFO, "panic.script", "succeeded")
 
         if self.settings.notify and self.settings.mail.send:
             try:
                 self._send_email(reason)
             except (OSError, yaml.YAMLError, ValueError) as error:
-                LOGGER.warning("Panic email failed (%s)", type(error).__name__)
+                log_event(
+                    LOGGER,
+                    logging.WARNING,
+                    "panic.email",
+                    "failed error=%s",
+                    type(error).__name__,
+                )
+            else:
+                log_event(LOGGER, logging.INFO, "panic.email", "succeeded")
 
     def _send_email(self, reason: str) -> None:
         mail = self.settings.mail

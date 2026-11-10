@@ -16,14 +16,19 @@ jobs:
       TERM: xterm-256color
     steps:
       - name: Checkout
+        id: checkout
         uses: actions/checkout@v5
+        with:
+          submodules: recursive
 
       - name: Install Podman Compose
+        id: install_podman_compose
         run: |
           sudo apt-get update
           sudo apt-get install --yes podman podman-compose
 
       - name: Configure Podman Compose socket
+        id: configure_podman_socket
         run: |
           podman_socket() {
             local runtime_dir="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
@@ -62,4 +67,5 @@ jobs:
           podman compose version
 
       - name: Run test suite
+        id: run_tests
         run: ./scripts/test-launcher.sh

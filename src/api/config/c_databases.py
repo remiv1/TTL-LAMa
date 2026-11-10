@@ -24,6 +24,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, scoped_session, sessionmaker
 from sqlalchemy.schema import CreateSchema
 
+from api.logging_config import log_event
 from ._settings_sources import YamlSettingsBase
 
 LOGGER = logging.getLogger(__name__)
@@ -238,7 +239,13 @@ class DatabaseConfig:
                         connection.execute(lock_table.insert().values(id=1, version=0))
                 except IntegrityError:
                     pass
-        LOGGER.debug("Initialized database tables for %s", user_model.__tablename__)
+        log_event(
+            LOGGER,
+            logging.DEBUG,
+            "database.initialize",
+            "initialized tables model=%s",
+            user_model.__tablename__,
+        )
 
     def close(self) -> None:
         """Remove the scoped session and dispose of the database engine.

@@ -59,6 +59,21 @@ Un secret Flask monté dans `secrets/flask_secret_key` est prioritaire. S’il e
 
 En production, configurez explicitement l’environnement, désactivez le mode debug et activez HTTPS ainsi que les cookies `Secure`. Le seul réglage `FLASK_ENV=production` ne suffit pas : le démarrage est refusé si `DEBUG` reste activé. Par exemple, les variables de surcharge sont `TTL_LAMA_FLASK_ENV=production`, `TTL_LAMA_DEBUG=false`, `TTL_LAMA_ENFORCE_SECURE_CONNECTION=true` et `TTL_LAMA_SESSION_COOKIE_SECURE=true`. En production, un warning est journalisé tant que le compte administrateur utilise encore le mot de passe initial. L’API authentifiée `GET /auth/security-status` expose uniquement l’indicateur booléen `default_admin_password_in_use`.
 
+### Erreurs de configuration et secrets
+
+Les paramètres sont chargés des valeurs par défaut, puis du YAML et des variables d’environnement (`TTL_LAMA_*`); les variables d’environnement priment sur le YAML. Un fichier `_FILE` est une source de valeur distincte : ne configurez pas simultanément la valeur directe et le fichier pour un même secret, car la validation refuse ce conflit. Les fichiers secrets montés doivent être lisibles par l’utilisateur non privilégié `ttl-lama`. Un fichier absent ou illisible fait échouer la validation et empêche le démarrage; les messages identifient le paramètre sans afficher le contenu ni le chemin du secret. Un YAML malformé ou non objet empêche son chargement; l’API de configuration renvoie alors une erreur générique sans le contenu du fichier. Les types et valeurs hors schéma sont rejetés par les modèles de paramètres. Les contraintes d’unicité des noms de profil et des clés publiques s’appliquent aux tables créées sur une nouvelle base; `create_all()` ne met pas à niveau les tables existantes. Une installation existante doit prévoir une migration séparée avant de pouvoir compter sur ces contraintes.
+
+### Journaux
+
+L’API et le scheduler écrivent dans le volume persistant `/data/logs`, avec un fichier par niveau : `error.log`, `warning.log`, `info.log` et `debug.log`. Les lignes sont horodatées en UTC et identifient le processus émetteur :
+
+```text
+[TTL-LAMa API]-[yyyy-mm-dd HH:mm:ss] : <operation>-<Log>
+[TTL-LAMa Scheduler]-[yyyy-mm-dd HH:mm:ss] : <operation>-<Log>
+```
+
+Les archives tournent chaque jour à minuit UTC et conservent 30 rotations. Le répertoire est privé (`0700`) et les fichiers sont accessibles uniquement au compte applicatif (`0600`). Le volume `/data` doit donc être persistant et accessible en écriture à TTL-LAMa; un répertoire absent, non inscriptible ou aux permissions trop ouvertes empêche le démarrage des processus. Le chemin par défaut `/data/logs` peut être remplacé par `TTL_LAMA_LOG_DIRECTORY`. `app.log_level` définit le niveau minimal enregistré (`info` par défaut); définissez-le à `debug` pour remplir `debug.log`. Les journaux d’accès HTTP Gunicorn sont désactivés pour éviter d’archiver des chemins ou paramètres sensibles. Les secrets, jetons bruts, clés privées, clés publiques complètes, corps de requête et sorties stderr distantes ne sont pas consignés.
+
 Exemple :
 
 ```yaml

@@ -1,6 +1,7 @@
 """Administrative contracts, authorization, persistence and revocation tests."""
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from collections.abc import Mapping
 from datetime import timedelta
@@ -351,6 +352,36 @@ def test_revocation_cascades_and_preserves_history(domain: Domain, operation: st
         assert domain.app.extensions["auth_manager"].get_current_user(
             domain.user_headers["Authorization"].split(" ", 1)[1]
         ) is None
+
+
+def test_admin_lease_revocation_logs_success_and_failure(
+    domain: Domain,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Administrative revocation records its committed outcome without exception text."""
+    caplog.set_level(logging.INFO)
+    success = domain.client.post(
+        domain.path(f"leases/{domain.lease_id}/revoke"),
+        headers=domain.headers,
+    )
+    assert success.status_code == 200
+    assert any(
+        getattr(record, "operation", None) == "lease.revoke"
+        and "succeeded" in record.getMessage()
+        for record in caplog.records
+    )
+
+    caplog.clear()
+    failure = domain.client.post(
+        domain.path("leases/2147483647/revoke"),
+        headers=domain.headers,
+    )
+    assert failure.status_code == 404
+    assert any(
+        getattr(record, "operation", None) == "lease.revoke"
+        and "failed" in record.getMessage()
+        for record in caplog.records
+    )
 
 
 def test_device_metadata_does_not_revoke_access(domain: Domain) -> None:

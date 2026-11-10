@@ -88,7 +88,22 @@ A lease is temporary authorization granted to an identity and a device according
 Identity + Device + Access Profile + Duration -> Lease
 ```
 
-Expiration is part of the desired state: when `expires_at <= now`, the lease is expired and provisioned access must be absent, including after a TTL-LAMa restart.
+Expiration is part of the desired state: when `ended_at <= now`, the lease is expired and provisioned access must be absent, including after a TTL-LAMa restart.
+
+### Persisted Domain Model
+
+The following objects correspond to the current SQLAlchemy tables. Identity, device, profile, and assignment deletions are logical so their history is retained.
+
+| Object | Persisted data | Relationships and rules |
+| --- | --- | --- |
+| Identity (`users`) | UUID, username, optional email, `enabled`, `is_admin`, `created_at`, `last_login` | Username and a supplied email are unique. An identity has multiple devices, leases, profile assignments, credentials, and sessions. |
+| Device (`devices`) | Integer ID, `user_id`, name, public key, `created_at`, `revoked_at` | Owned by one identity; an identity can have multiple devices. The public key is unique across device records. Revocation retains the device and revokes its leases. |
+| Profile (`profiles`) | Integer ID, name, `created_at`, `revoked_at` | Name is unique. An assignment (`profile_users`) links an identity to a profile and retains its creation/revocation timestamps. |
+| Policy (`profile_policies`) | Profile ID, default and maximum duration, backend target, networks | At most one policy per profile; networks are stored as a validated JSON list. |
+| Lease (`leases`) | Integer ID, `user_id`, `device_id`, `profile_user_id`, `created_at`, `ended_at`, `revoked_at` | References the identity, device, and profile assignment. Multiple historical leases may be retained. API status is computed, not persisted: revoked when `revoked_at` is set, otherwise expired when `ended_at` is reached, otherwise pending/failed according to provisioning, otherwise active. |
+| Provisioning (`lease_provisioning`) | Lease ID, backend JSON document, state, error code | One immutable document stores the backend snapshot, including the public key. Persisted states include `pending_apply`, `applied`, `pending_delete`, `deleted`, and `uncertain`; `applying` and `deleting` are transient claims persisted during backend calls. `uncertain` is a recoverable state retried by the scheduler, not a terminal state. |
+
+Passwords are stored only as Argon2 hashes in credentials; sessions store a token hash, not the raw token. Client private keys, configuration secrets, and request bodies are not stored as domain data. Revoked profiles and assignments remain in the database to preserve history. The model uniqueness constraints are created for new databases; `create_all()` does not upgrade existing tables, which require a separate migration.
 
 ## Components
 
@@ -130,6 +145,8 @@ SQLite is the planned default for a standalone installation. Supported external 
 ### Access Backend
 
 The access backend materializes a lease. The first implementation targets WireGuard peers, while the domain core remains independent of backend-specific concepts so that other backends can be considered later.
+
+The `VPNBackend` abstract contract defines `grant(lease)`, `revoke(lease)`, `reconcile(lease)`, and `list_leases()`. `lease` is the serialized provisioning document; `list_leases()` returns observed state. Implementations must allow application and deletion to be retried without creating duplicates or making deleted access active again. The current scheduler converges from database state and `list_leases()` by calling `grant()` and `revoke()`.
 
 ## Code Organization
 
@@ -242,7 +259,7 @@ WireGuard is not an access database. The desired state is determined from TTL-LA
 desired_peers =
   leases
   WHERE status = ACTIVE
-  AND expires_at > now()
+  AND ended_at > now()
 ```
 
 The TTL-LAMa persistence layer therefore remains the source of truth.
@@ -344,12 +361,12 @@ scheduler startup reconciliation
       v
 load active leases
       |
-      +--> expires_at <= now()
+      +--> ended_at <= now()
       |        |
       |        v
       |   expire immediately
       |
-      +--> expires_at > now()
+      +--> ended_at > now()
                |
                v
           schedule
@@ -358,7 +375,7 @@ load active leases
 
 Losing the scheduler's internal state therefore does not result in lost deadlines.
 
-The authoritative information remains `Lease.expires_at`, not the job registered with the scheduler.
+The authoritative information remains `Lease.ended_at`, not the job registered with the scheduler.
 
 ### Handling a Deadline
 
@@ -401,7 +418,7 @@ UPDATE leases
 SET status = 'expired'
 WHERE id = :lease_id
   AND status = 'active'
-  AND expires_at <= :now;
+  AND ended_at <= :now;
 ```
 
 If the transition occurred, the backend is revoked. Otherwise, no further revocation is needed. WireGuard backend operations must also be designed to be idempotent: requesting the removal of an already absent peer must not compromise the reconciliation process.

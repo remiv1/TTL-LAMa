@@ -88,7 +88,22 @@ Un bail représente une autorisation temporaire accordée à une identité et à
 Identité + Appareil + Profil d’accès + Durée -> Bail
 ```
 
-L’expiration fait partie de l’état désiré : lorsque `expires_at <= now`, le bail est expiré et l’accès provisionné doit être absent, y compris après un redémarrage de TTL-LAMa.
+L’expiration fait partie de l’état désiré : lorsque `ended_at <= now`, le bail est expiré et l’accès provisionné doit être absent, y compris après un redémarrage de TTL-LAMa.
+
+### Modèle métier persisté
+
+Les objets suivants correspondent aux tables SQLAlchemy actuelles. Les suppressions d’identité, d’appareil, de profil et d’affectation sont logiques afin de préserver l’historique.
+
+| Objet | Données persistées | Relations et règles |
+| --- | --- | --- |
+| Identité (`users`) | UUID, nom d’utilisateur, courriel facultatif, `enabled`, `is_admin`, `created_at`, `last_login` | Un nom d’utilisateur et un courriel renseigné sont uniques. Une identité possède plusieurs appareils, baux, affectations de profils, credentials et sessions. |
+| Appareil (`devices`) | ID entier, `user_id`, nom, clé publique, `created_at`, `revoked_at` | Appartient à une identité; une identité peut avoir plusieurs appareils. La clé publique est unique entre les enregistrements d’appareil. La révocation conserve l’appareil et révoque ses baux. |
+| Profil (`profiles`) | ID entier, nom, `created_at`, `revoked_at` | Le nom est unique. Une affectation (`profile_users`) relie une identité à un profil et conserve ses dates de création/révocation. |
+| Politique (`profile_policies`) | ID du profil, durée par défaut et maximale, cible backend, réseaux | Une politique au plus par profil; les réseaux sont stockés sous forme de liste JSON validée. |
+| Bail (`leases`) | ID entier, `user_id`, `device_id`, `profile_user_id`, `created_at`, `ended_at`, `revoked_at` | Référence l’identité, l’appareil et l’affectation de profil. Plusieurs baux historiques peuvent être conservés. Le statut API est calculé, non persisté : révoqué si `revoked_at` est renseigné, sinon expiré si `ended_at` est atteint, sinon en attente/échoué selon le provisioning, sinon actif. |
+| Provisionnement (`lease_provisioning`) | ID du bail, document backend JSON, état, code d’erreur | Un document immuable conserve le snapshot nécessaire au backend, dont la clé publique. Les états persistés comprennent `pending_apply`, `applied`, `pending_delete`, `deleted` et `uncertain`; `applying` et `deleting` sont des claims transitoires persistés pendant les appels backend. `uncertain` est un état récupérable retraité par le scheduler, pas un état terminal. |
+
+Les mots de passe ne sont conservés que sous forme de hash Argon2 dans les credentials; les sessions conservent le hash du jeton, pas le jeton brut. Les clés privées client, secrets de configuration et corps de requête ne sont pas enregistrés comme données métier. Les profils et affectations révoqués restent dans la base pour préserver l’historique. Les contraintes d’unicité ajoutées aux modèles sont créées pour les nouvelles bases; `create_all()` ne met pas à niveau les tables déjà existantes, qui nécessitent une migration distincte.
 
 ## Composants
 
@@ -130,6 +145,8 @@ SQLite est le backend prévu par défaut pour une installation autonome. Les mot
 ### Backend d’accès
 
 Le backend d’accès matérialise un bail. La première implémentation cible les pairs WireGuard, tandis que le cœur métier reste indépendant des concepts spécifiques au backend afin que d’autres mécanismes puissent être envisagés.
+
+Le contrat abstrait `VPNBackend` définit `grant(lease)`, `revoke(lease)`, `reconcile(lease)` et `list_leases()`. `lease` est le document de provisioning sérialisé; `list_leases()` retourne l’état observé. Les implémentations doivent pouvoir répéter l’application et la suppression sans créer de doublon ni rendre un accès supprimé à nouveau actif. Le scheduler courant converge à partir de la base et de `list_leases()` en appelant `grant()` et `revoke()`.
 
 ## Organisation du code
 
@@ -242,7 +259,7 @@ WireGuard ne constitue pas une base de données des accès. L'état désiré est
 desired_peers =
   leases
   WHERE status = ACTIVE
-  AND expires_at > now()
+  AND ended_at > now()
 ```
 
 La persistance TTL-LAMa reste donc la source de vérité.
@@ -345,12 +362,12 @@ réconciliation au démarrage
       v
 charger les baux actifs
       |
-      +--> expires_at <= now()
+      +--> ended_at <= now()
       |        |
       |        v
       |   expiration immédiate
       |
-      +--> expires_at > now()
+      +--> ended_at > now()
                |
                v
           programmation
@@ -359,7 +376,7 @@ charger les baux actifs
 
 Une perte de l'état interne du scheduler n'entraîne donc pas une perte des échéances.
 
-L'information autoritative reste `Lease.expires_at` et non le job enregistré dans le scheduleur.
+L'information autoritative reste `Lease.ended_at` et non le job enregistré dans le scheduleur.
 
 ### Traitement d'une échéance
 
@@ -402,7 +419,7 @@ UPDATE leases
 SET status = 'expired'
 WHERE id = :lease_id
   AND status = 'active'
-  AND expires_at <= :now;
+  AND ended_at <= :now;
 ```
 
 Si la transition a effectivement eu lieu, le backend est révoqué. Dans le cas contraire, aucune nouvelle révocation n'est nécessaire. Les opérations du backend WireGuard doivent également être conçues comme idempotentes : demander la suppression d'un peer déjà absent ne doit pas compromettre le cycle de réconciliation.

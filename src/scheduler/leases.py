@@ -24,6 +24,7 @@ from api.common.db_objects.lease_provisioning import LeaseProvisioning
 from api.common.db_objects.leases import Lease
 from api.common.repositories.leases import utcnow
 from api.config.c_databases import DatabaseConfig
+from api.logging_config import log_event
 from scheduler.ssh import format_subprocess_failure
 from vpn_backends.wireguard import WireGuardBackend
 
@@ -68,7 +69,13 @@ class LeaseScheduler:
             for lease_id in requests:
                 self.process(lease_id)
         except (SQLAlchemyError, OSError, RuntimeError, TypeError, ValueError) as error:
-            LOGGER.warning("Unable to process VPN provisioning requests (%s)", type(error).__name__)
+            log_event(
+                LOGGER,
+                logging.WARNING,
+                "provisioning.poll",
+                "failed error=%s",
+                type(error).__name__,
+            )
             self.database.session.rollback()
         finally:
             self.database.session.remove()
@@ -81,6 +88,14 @@ class LeaseScheduler:
         self._reconcile_peers(desired, observed)
         self._restore_expiration_jobs(lease_states)
         self._persist_reconciliation(lease_states)
+        log_event(
+            LOGGER,
+            logging.INFO,
+            "reconciliation.run",
+            "succeeded leases=%s active=%s",
+            len(lease_states),
+            len(desired),
+        )
 
     def _load_desired_state(
         self,
@@ -232,9 +247,11 @@ class LeaseScheduler:
             if isinstance(error, subprocess.CalledProcessError):
                 self._log_subprocess_failure(lease_id, applying, error)
             else:
-                LOGGER.warning(
-                    "VPN %s operation failed for lease %s (%s)",
-                    "apply" if applying else "delete",
+                log_event(
+                    LOGGER,
+                    logging.WARNING,
+                    f"lease.provisioning.{'apply' if applying else 'delete'}",
+                    "failed lease_id=%s error=%s",
                     lease_id,
                     type(error).__name__,
                 )
@@ -252,9 +269,11 @@ class LeaseScheduler:
         error: subprocess.CalledProcessError,
     ) -> None:
         operation = "apply" if applying else "delete"
-        LOGGER.warning(
-            "VPN %s operation failed for lease %s (%s)",
-            operation,
+        log_event(
+            LOGGER,
+            logging.WARNING,
+            f"lease.provisioning.{operation}",
+            "failed lease_id=%s %s",
             lease_id,
             format_subprocess_failure(error),
         )
@@ -344,8 +363,30 @@ class LeaseScheduler:
         session.commit()
         if result.rowcount != 1:
             self._remove_expiration(lease_id)
+            log_event(
+                LOGGER,
+                logging.WARNING,
+                "lease.provisioning.apply",
+                "superseded lease_id=%s; deletion scheduled",
+                lease_id,
+            )
+        else:
+            log_event(
+                LOGGER,
+                logging.INFO,
+                "lease.provisioning.apply",
+                "succeeded lease_id=%s",
+                lease_id,
+            )
 
     def _complete_delete(self, session: Session, lease_id: int) -> None:
+        lease = session.get(Lease, lease_id)
+        expired = False
+        if lease is not None and lease.revoked_at is None:
+            end = lease.ended_at
+            if end.tzinfo is not None:
+                end = end.astimezone(timezone.utc).replace(tzinfo=None)
+            expired = end <= utcnow()
         session.execute(update(LeaseProvisioning).where(
             LeaseProvisioning.lease_id == lease_id,
             LeaseProvisioning.state == "deleting",
@@ -355,6 +396,21 @@ class LeaseScheduler:
         )))
         session.commit()
         self._remove_expiration(lease_id)
+        if expired:
+            log_event(
+                LOGGER,
+                logging.INFO,
+                "lease.expire",
+                "succeeded lease_id=%s",
+                lease_id,
+            )
+        log_event(
+            LOGGER,
+            logging.INFO,
+            "lease.provisioning.delete",
+            "succeeded access_removed lease_id=%s",
+            lease_id,
+        )
 
     def _remove_expiration(self, lease_id: int) -> None:
         job = self.scheduler.get_job(f"lease-expiry-{lease_id}")
@@ -371,11 +427,22 @@ class LeaseScheduler:
             session = self.database.session()
             lease = session.get(Lease, lease_id)
             if lease is not None and (lease.revoked_at is not None or lease.ended_at <= utcnow()):
-                session.execute(update(LeaseProvisioning).where(
-                    LeaseProvisioning.lease_id == lease_id,
-                    LeaseProvisioning.state.not_in(("deleted", "uncertain")),
-                ).values(state="pending_delete"))
+                result = cast(
+                    CursorResult[object],
+                    session.execute(update(LeaseProvisioning).where(
+                        LeaseProvisioning.lease_id == lease_id,
+                        LeaseProvisioning.state.not_in(("deleted", "uncertain")),
+                    ).values(state="pending_delete"))
+                )
                 session.commit()
+                if result.rowcount:
+                    log_event(
+                        LOGGER,
+                        logging.INFO,
+                        "lease.expire",
+                        "deletion requested lease_id=%s",
+                        lease_id,
+                    )
             else:
                 session.rollback()
         finally:

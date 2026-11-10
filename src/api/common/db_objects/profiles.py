@@ -51,6 +51,7 @@ class Profile(Base):
     name: Mapped[str] = mapped_column(
         String(255),
         nullable=False,
+        unique=True,
         comment="Name of the profile",
     )
     created_at: Mapped[datetime] = created_at_column()

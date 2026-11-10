@@ -26,6 +26,7 @@ from sqlalchemy import DateTime, func, String, ForeignKey, Integer
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 from api.config.c_databases import DbType, Settings as DatabaseSettings
+from api.logging_config import log_event
 
 LOGGER = logging.getLogger(__name__)
 _database_settings = DatabaseSettings()
@@ -103,7 +104,12 @@ class Base(DeclarativeBase):
             if hasattr(obj, key):
                 setattr(obj, key, value)
             else:
-                LOGGER.debug("Unknown attribute '%s' in data dictionary", key)
+                log_event(
+                    LOGGER,
+                    logging.DEBUG,
+                    "database.model.convert",
+                    "ignored unknown attribute",
+                )
         return obj
 
 def created_at_column() -> Mapped[datetime]:
