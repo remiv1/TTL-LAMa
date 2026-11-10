@@ -51,7 +51,7 @@ TTL-LAMa a vocation à être open source et adapté à l’auto-hébergement.
 ### Phase 1 : prototype autonome
 
 - [ ] Déploiement dans un conteneur unique
-- [ ] Authentification interne et multifacteur
+- [ ] Authentification interne
 - [ ] Persistance SQLite
 - [ ] Backend WireGuard
 - [ ] Gestion des appareils et enregistrement des clés publiques
@@ -62,6 +62,7 @@ TTL-LAMa a vocation à être open source et adapté à l’auto-hébergement.
 
 ### Phase 2 : intégration
 
+- [ ] Authentification multifacteur (V2)
 - [ ] Authentification externe et OIDC
 - [ ] PostgreSQL
 - [ ] Associations entre identités externes et profils

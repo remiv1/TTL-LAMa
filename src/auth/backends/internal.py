@@ -31,9 +31,13 @@ class InternalAuthBackend(AuthBackend):
         self,
         user_service: UserService,
         password_hasher: PasswordHasher,
+        max_connect_retry: int = 3,
+        login_lock_duration_seconds: int = 900,
     ) -> None:
         self.user_service = user_service
         self.password_hasher = password_hasher
+        self.max_connect_retry = max_connect_retry
+        self.login_lock_duration_seconds = login_lock_duration_seconds
 
     def _validate_credentials(
         self,
@@ -72,6 +76,8 @@ class InternalAuthBackend(AuthBackend):
         user = self.user_service.get_by_username(cast(str, username))
         if user is None or not user.enabled:
             return None
+        if self.user_service.is_login_locked(user):
+            return None
 
         internal_credentials = [
             credential
@@ -87,8 +93,14 @@ class InternalAuthBackend(AuthBackend):
                 cast(str, password),
             )
         except (VerificationError, InvalidHashError):
+            self.user_service.record_failed_login(
+                user,
+                self.max_connect_retry,
+                self.login_lock_duration_seconds,
+            )
             return None
 
+        self.user_service.reset_login_attempts(user)
         return UnifiedUser.from_db_user(user)
 
     def complete_login(self) -> UnifiedUser:

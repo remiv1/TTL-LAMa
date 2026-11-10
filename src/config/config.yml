@@ -27,6 +27,8 @@ auth:
     parallelism: 4
     hash_len: 32
     salt_len: 16
+  max_connect_retry: 3
+  login_lock_duration_seconds: 900
 
 database:
   type: sqlite

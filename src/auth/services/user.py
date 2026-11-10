@@ -8,6 +8,7 @@
 """
 from __future__ import annotations
 
+from datetime import timedelta
 from typing import TYPE_CHECKING, Optional
 from uuid import UUID
 
@@ -16,9 +17,10 @@ from argon2.exceptions import InvalidHashError, VerificationError
 from sqlalchemy import inspect, select, update
 from sqlalchemy.orm import Session as ORMSession
 
-from api.common.db_objects import User, UserOIDCUser, UserCredentials
+from api.common.db_objects import User, UserLoginState, UserOIDCUser, UserCredentials
 from api.common.other_objects import AuthMethod
 from api.common.repositories import ConflictError, NotFoundError, UserRepository
+from api.common.repositories.leases import utcnow
 from auth.exceptions import InvalidCredentialsError
 
 from ._common import ServiceMixin
@@ -310,6 +312,92 @@ class UserService(ServiceMixin):
         repository = UserRepository(self.db_session)
         repository.set_last_login(repository.get(user_id))
         self.commit()
+
+    def is_login_locked(self, user: User) -> bool:
+        """Return whether an account is locked and clear an expired lock.
+
+        :param user: The account being authenticated.
+        :type user: User
+        :returns: Whether the account is currently locked.
+        :rtype: bool
+        """
+        state = self.db_session.get(UserLoginState, user.id)
+        if state is None:
+            return False
+        if state.locked_until is not None:
+            if state.locked_until > utcnow():
+                return True
+            self._clear_login_state(state)
+            self.commit()
+            return False
+        return state.locked
+
+    def record_failed_login(
+        self,
+        user: User,
+        maximum_attempts: int,
+        lock_duration_seconds: int,
+    ) -> None:
+        """Persist a failed login and temporarily lock the account at the limit.
+
+        :param user: The account whose credentials were rejected.
+        :type user: User
+        :param maximum_attempts: Consecutive failures allowed before locking.
+        :type maximum_attempts: int
+        :param lock_duration_seconds: Duration of the temporary lock.
+        :type lock_duration_seconds: int
+        """
+        locked_user = self.db_session.scalar(
+            select(User)
+            .where(User.id == user.id)
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        )
+        if locked_user is None:
+            self.rollback()
+            return
+
+        state = self.db_session.get(UserLoginState, locked_user.id)
+        now = utcnow()
+        if state is not None:
+            if state.locked and state.locked_until is None:
+                self.rollback()
+                return
+            if state.locked_until is not None and state.locked_until > now:
+                self.rollback()
+                return
+            if state.locked_until is not None:
+                self._clear_login_state(state)
+        else:
+            state = UserLoginState(user_id=locked_user.id, failed_attempts=0)
+            self.db_session.add(state)
+
+        state.failed_attempts += 1
+        if state.failed_attempts >= maximum_attempts:
+            state.locked = True
+            state.locked_until = now + timedelta(seconds=lock_duration_seconds)
+        self.commit()
+
+    def reset_login_attempts(self, user: User) -> None:
+        """Clear failed attempts after a successful internal authentication.
+
+        :param user: The account whose credentials were accepted.
+        :type user: User
+        """
+        state = self.db_session.get(UserLoginState, user.id)
+        if state is not None and (
+            state.failed_attempts != 0
+            or state.locked
+            or state.locked_until is not None
+        ):
+            self._clear_login_state(state)
+            self.commit()
+
+    @staticmethod
+    def _clear_login_state(state: UserLoginState) -> None:
+        state.failed_attempts = 0
+        state.locked = False
+        state.locked_until = None
 
     def change_password(
         self,

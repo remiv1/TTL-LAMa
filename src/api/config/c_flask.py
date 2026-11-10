@@ -66,6 +66,8 @@ class Settings(YamlSettingsBase):
     SECRET_KEY_FILE: Path | None = Field(default=None, repr=False)
     LOG_LEVEL: str = Field(default="info")
     AUTH_MODE: Literal["internal", "external"] = "internal"
+    MAX_CONNECT_RETRY: int = Field(default=3, ge=1, le=100)
+    LOGIN_LOCK_DURATION_SECONDS: int = Field(default=900, ge=1, le=86400)
     CORS_ALLOWED_ORIGINS: list[str] = Field(default_factory=list)
     ADMIN_USERNAME: str = "admin"
     ADMIN_PASSWORD: str = Field(default="", repr=False)
@@ -119,6 +121,8 @@ class Settings(YamlSettingsBase):
             },
             "auth": {
                 "mode": "AUTH_MODE",
+                "max_connect_retry": "MAX_CONNECT_RETRY",
+                "login_lock_duration_seconds": "LOGIN_LOCK_DURATION_SECONDS",
                 "cookie_name": "AUTH_COOKIE_NAME",
                 "allowed_origins": "CORS_ALLOWED_ORIGINS",
                 "success_redirect": "AUTH_SUCCESS_REDIRECT",

@@ -2,10 +2,17 @@
 from __future__ import annotations
 
 import logging
+import os
+import shutil
+import subprocess
+import time
 from dataclasses import dataclass
 from collections.abc import Mapping
 from datetime import timedelta
+from pathlib import Path
 from typing import cast
+from urllib.error import URLError
+from urllib.request import urlopen
 from uuid import uuid4
 
 import pytest
@@ -44,6 +51,64 @@ def json_object(response: TestResponse) -> dict[str, object]:
 def json_rows(response: TestResponse) -> list[dict[str, object]]:
     """Verify the exact list response shape."""
     return TypeAdapter(list[dict[str, object]]).validate_python(response.get_json())
+
+
+def _podman(*arguments: str) -> str:
+    """Run Podman and return its standard output."""
+    result = subprocess.run(
+        ["podman", *arguments],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    return result.stdout.strip()
+
+
+def _start_persistence_test_container(
+    container_name: str,
+    image_name: str,
+    volume_name: str,
+) -> str:
+    """Start the local image with an isolated persistent data volume."""
+    _podman(
+        "run",
+        "--detach",
+        "--name",
+        container_name,
+        "--publish",
+        "127.0.0.1::8080",
+        "--volume",
+        f"{volume_name}:/data:Z,U",
+        image_name,
+    )
+    port_mapping = _podman("port", container_name, "8080/tcp")
+    host_port = port_mapping.rsplit(":", maxsplit=1)[-1]
+    assert host_port.isdigit()
+    return f"http://127.0.0.1:{host_port}"
+
+
+def _wait_for_persistence_test_container(base_url: str) -> None:
+    """Wait for the test container's health endpoint to become ready."""
+    for _ in range(60):
+        try:
+            with urlopen(f"{base_url}/health", timeout=2) as response:
+                if response.status == 200:
+                    return
+        except (OSError, URLError):
+            pass
+        time.sleep(2)
+    pytest.fail("The local TTL-LAMa container did not become healthy.")
+
+
+def _container_admin_id(container_name: str) -> str:
+    """Read the bootstrapped administrator identifier from the container DB."""
+    return _podman(
+        "exec",
+        container_name,
+        "sqlite3",
+        "/data/ttl-lama.db",
+        "SELECT id FROM users WHERE username = 'admin';",
+    )
 
 
 @dataclass
@@ -581,6 +646,118 @@ def test_policy_survives_application_restart(
         assert policy["maximum_duration"] == "3h"
     finally:
         restarted.extensions["database_config"].close()
+
+
+@pytest.mark.skipif(
+    os.environ.get("TTL_LAMA_TEST_REAL_PODMAN") != "1",
+    reason="Set TTL_LAMA_TEST_REAL_PODMAN=1 to run the host-side Podman test.",
+)
+def test_admin_data_survives_real_podman_container_recreation() -> None:
+    """Preserve application data when a container is recreated with its volume."""
+    if shutil.which("podman") is None:
+        pytest.fail("Podman is required for the host-side persistence test.")
+
+    test_id = uuid4().hex[:12]
+    image_name = f"localhost/ttl-lama-persistence-test:{test_id}"
+    volume_name = f"ttl-lama-persistence-test-{test_id}"
+    container_name = f"ttl-lama-persistence-test-{test_id}"
+    repository_root = Path(__file__).resolve().parents[2]
+
+    try:
+        _podman(
+            "build",
+            "--file",
+            str(repository_root / "src" / "Dockerfile"),
+            "--tag",
+            image_name,
+            str(repository_root),
+        )
+        _podman("volume", "create", volume_name)
+
+        base_url = _start_persistence_test_container(
+            container_name,
+            image_name,
+            volume_name,
+        )
+        _wait_for_persistence_test_container(base_url)
+        original_admin_id = _container_admin_id(container_name)
+        assert original_admin_id
+
+        _podman("stop", "--time", "15", container_name)
+        _podman("rm", container_name)
+
+        restarted_url = _start_persistence_test_container(
+            container_name,
+            image_name,
+            volume_name,
+        )
+        _wait_for_persistence_test_container(restarted_url)
+        assert _container_admin_id(container_name) == original_admin_id
+    finally:
+        subprocess.run(
+            ["podman", "rm", "--force", container_name],
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        subprocess.run(
+            ["podman", "volume", "rm", volume_name],
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        subprocess.run(
+            ["podman", "image", "rm", image_name],
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+
+
+def test_profiles_are_loaded_from_backend_file_on_application_startup(
+    tmp_path: Path,
+    database_settings: DatabaseSettings,
+) -> None:
+    """Import configured WireGuard profiles into the database during startup."""
+    profile_name = f"startup-{uuid4().hex}"
+    backend_config_file = tmp_path / "backend-config.yml"
+    backend_config_file.write_text(
+        "backend:\n"
+        "  wireguard:\n"
+        "    interfaces:\n"
+        "      - name: wg-startup\n"
+        f"        description: {profile_name}\n"
+        "        networks:\n"
+        "          - 192.0.2.0/24\n"
+        "        public_key: startup-test-key\n"
+        "        default_duration: 20m\n"
+        "        maximum_duration: 2h\n",
+        encoding="utf-8",
+    )
+    settings = FlaskSettings(
+        AUTH_MODE="internal",
+        FLASK_ENV="testing",
+        SECRET_KEY="test-secret-key-with-more-than-thirty-two-characters",
+        ADMIN_USERNAME=f"startup-admin-{uuid4().hex}",
+        ADMIN_PASSWORD="correct-horse-battery",
+        ENFORCE_SECURE_CONNECTION=False,
+        SESSION_COOKIE_SECURE=False,
+        BACKEND_CONFIG_FILE=backend_config_file,
+    )
+
+    application = create_app(settings, database_settings)
+    try:
+        session = application.extensions["database_config"].session()
+        profile = ProfileRepository(session).list(Profile.name == profile_name)
+        assert len(profile) == 1
+        policy = ProfileRepository(session).policy(profile[0])
+        assert policy is not None
+        assert policy.lease_target == "wg-startup"
+        assert policy.default_duration == "20m"
+        assert policy.maximum_duration == "2h"
+        assert [str(network) for network in policy.networks] == ["192.0.2.0/24"]
+    finally:
+        application.extensions["database_config"].close()
 
 
 def test_revoking_one_assignment_keeps_other_users_access(domain: Domain) -> None:

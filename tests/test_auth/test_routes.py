@@ -1,5 +1,6 @@
 """Tests for authentication routes."""
 
+from datetime import timedelta
 from typing import cast
 
 import pytest
@@ -8,7 +9,8 @@ from flask import Flask
 from flask.testing import FlaskClient
 from werkzeug.test import TestResponse
 
-from api.common.db_objects import User, UserOIDCUser
+from api.common.db_objects import User, UserLoginState, UserOIDCUser
+from api.common.repositories.leases import utcnow
 from auth.backends import OIDCAuthBackend
 from auth.manager import AuthManager
 
@@ -140,6 +142,105 @@ def test_internal_login_rejects_invalid_credentials_without_cookie(app: Flask) -
     assert response.status_code == 401
     assert response.get_json() == {"error": "Invalid username or password"}
     _assert_auth_cookie_not_set(response, app)
+
+
+def test_internal_login_locks_account_after_configured_failures(app: Flask) -> None:
+    """Lock an account at the configured threshold across GUI and API login routes."""
+    client = app.test_client()
+    username = cast(str, app.config["TEST_ADMIN_USERNAME"])
+    credentials = {"username": username, "password": "wrong-password"}
+
+    for _ in range(app.config["MAX_CONNECT_RETRY"]):    # type: ignore
+        response = client.post(
+            "/auth/login",
+            json=credentials,
+            headers=_csrf_headers(client),
+        )
+        assert response.status_code == 401
+        assert response.get_json() == {"error": "Invalid username or password"}
+
+    user = app.extensions["auth_manager"].user_service.get_by_username(username)
+    assert user is not None
+    state = app.extensions["database_config"].session().get(UserLoginState, user.id)
+    assert state is not None
+    assert state.failed_attempts == app.config["MAX_CONNECT_RETRY"]
+    assert state.locked
+    assert state.locked_until is not None
+    assert state.locked_until > utcnow()
+
+    blocked_gui = client.post(
+        "/auth/login",
+        json={"username": username, "password": "correct-horse-battery"},
+        headers=_csrf_headers(client),
+    )
+    blocked_api = client.post(
+        "/api/v1/auth",
+        json={"username": username, "password": "correct-horse-battery"},
+        headers={"Authorization": "Bearer unused"},
+    )
+
+    for blocked in (blocked_gui, blocked_api):
+        assert blocked.status_code == 401
+        assert blocked.get_json() == {"error": "Invalid username or password"}
+    _assert_auth_cookie_not_set(blocked_gui, app)
+
+
+def test_expired_login_lock_resets_before_counting_next_failure(app: Flask) -> None:
+    """An expired lock clears prior failures before evaluating another login."""
+    client = app.test_client()
+    username = cast(str, app.config["TEST_ADMIN_USERNAME"])
+    user = app.extensions["auth_manager"].user_service.get_by_username(username)
+    assert user is not None
+    session = app.extensions["database_config"].session()
+    state = UserLoginState(
+        user_id=user.id,
+        failed_attempts=app.config["MAX_CONNECT_RETRY"],
+        locked=True,
+        locked_until=utcnow() - timedelta(seconds=1),
+    )
+    session.add(state)
+    session.commit()
+
+    response = client.post(
+        "/auth/login",
+        json={"username": username, "password": "wrong-password"},
+        headers=_csrf_headers(client),
+    )
+
+    assert response.status_code == 401
+    updated_state = session.get(UserLoginState, user.id)
+    assert updated_state is not None
+    assert updated_state.failed_attempts == 1
+    assert not updated_state.locked
+    assert updated_state.locked_until is None
+
+
+def test_successful_internal_login_resets_failed_attempts(app: Flask) -> None:
+    """A successful login clears failures accumulated before the lock threshold."""
+    client = app.test_client()
+    username = cast(str, app.config["TEST_ADMIN_USERNAME"])
+    for _ in range(app.config["MAX_CONNECT_RETRY"] - 1):    # type: ignore
+        response = client.post(
+            "/auth/login",
+            json={"username": username, "password": "wrong-password"},
+            headers=_csrf_headers(client),
+        )
+        assert response.status_code == 401
+
+    successful = client.post(
+        "/auth/login",
+        json={"username": username, "password": "correct-horse-battery"},
+        headers=_csrf_headers(client),
+    )
+
+    assert successful.status_code == 200
+    user = app.extensions["auth_manager"].user_service.get_by_username(username)
+    assert user is not None
+    state = app.extensions["database_config"].session().get(UserLoginState, user.id)
+    assert state is not None
+    assert state.failed_attempts == 0
+    assert not state.locked
+    assert state.locked_until is None
 
 
 def test_internal_login_rejects_non_object_json_without_cookie(app: Flask) -> None:

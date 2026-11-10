@@ -51,7 +51,7 @@ TTL-LAMa is intended to be open source and suitable for self-hosting.
 ### Phase 1: Standalone Prototype
 
 - [ ] Single-container deployment
-- [ ] Internal authentication and multi-factor authentication
+- [ ] Internal authentication
 - [ ] SQLite persistence
 - [ ] WireGuard backend
 - [ ] Device management and public key registration
@@ -62,6 +62,7 @@ TTL-LAMa is intended to be open source and suitable for self-hosting.
 
 ### Phase 2: Integration
 
+- [ ] Multi-factor authentication (V2)
 - [ ] External authentication and OIDC
 - [ ] PostgreSQL
 - [ ] Associations between external identities and profiles

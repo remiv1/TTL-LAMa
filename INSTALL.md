@@ -1,6 +1,6 @@
 # Plan d’installation TTL-LAMa
 
-> Proposition : l’installeur n’est pas encore implémenté.
+> L’installeur est implémenté dans `scripts/install/`. Il génère un bundle de configuration et affiche les commandes Podman sans les exécuter.
 
 ## Parcours de configuration
 
@@ -114,4 +114,4 @@ Le questionnaire Python valide les réponses et écrit les fichiers structurés;
 - Rendre les étapes relançables; sauvegarder les configurations remplacées.
 - Vérifier les règles avec `visudo -cf`; ne pas autoriser un `sudo` générique.
 - Confirmer explicitement la création/révocation de comptes et la rotation des clés.
-- Le backend serveur WireGuard et la réconciliation planifiée restent à implémenter ([TODO](TODO.md)). OpenVPN est une option prévue par le questionnaire, pas une capacité actuellement implémentée.
+- Le backend serveur WireGuard est intégré au scheduler via SSH. La réconciliation complète des pairs a lieu au démarrage du scheduler; seul le traitement des opérations en attente est périodique. OpenVPN reste une option du questionnaire, pas un backend serveur intégré.

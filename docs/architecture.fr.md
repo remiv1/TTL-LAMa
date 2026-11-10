@@ -14,7 +14,7 @@ Identité -> Appareil -> Profil d’accès -> Bail -> Backend d’accès
 
 Une identité représente un utilisateur auquel TTL-LAMa peut accorder des droits. Deux modes d’authentification sont prévus :
 
-- **`internal`** : TTL-LAMa gère les comptes et les mécanismes nécessaires à leur authentification, dont l’authentification multifacteur.
+- **`internal`** : TTL-LAMa gère les comptes et les mécanismes nécessaires à leur authentification. Le MFA est prévu pour la V2 et n’est pas inclus dans le prototype.
 - **`external`** : l’authentification est déléguée à un fournisseur d’identité, initialement via OIDC.
 
 Les deux modes produisent une identité utilisable par le cœur métier. La logique des baux, appareils et profils ne dépend pas de la manière dont cette identité a été authentifiée.
@@ -103,7 +103,7 @@ Les objets suivants correspondent aux tables SQLAlchemy actuelles. Les suppressi
 | Bail (`leases`) | ID entier, `user_id`, `device_id`, `profile_user_id`, `created_at`, `ended_at`, `revoked_at` | Référence l’identité, l’appareil et l’affectation de profil. Plusieurs baux historiques peuvent être conservés. Le statut API est calculé, non persisté : révoqué si `revoked_at` est renseigné, sinon expiré si `ended_at` est atteint, sinon en attente/échoué selon le provisioning, sinon actif. |
 | Provisionnement (`lease_provisioning`) | ID du bail, document backend JSON, état, code d’erreur | Un document immuable conserve le snapshot nécessaire au backend, dont la clé publique. Les états persistés comprennent `pending_apply`, `applied`, `pending_delete`, `deleted` et `uncertain`; `applying` et `deleting` sont des claims transitoires persistés pendant les appels backend. `uncertain` est un état récupérable retraité par le scheduler, pas un état terminal. |
 
-Les mots de passe ne sont conservés que sous forme de hash Argon2 dans les credentials; les sessions conservent le hash du jeton, pas le jeton brut. Les clés privées client, secrets de configuration et corps de requête ne sont pas enregistrés comme données métier. Les profils et affectations révoqués restent dans la base pour préserver l’historique. Les contraintes d’unicité ajoutées aux modèles sont créées pour les nouvelles bases; `create_all()` ne met pas à niveau les tables déjà existantes, qui nécessitent une migration distincte.
+Les mots de passe ne sont conservés que sous forme de hash Argon2 dans les credentials; les sessions conservent le hash du jeton, pas le jeton brut. Les clés privées client, secrets de configuration et corps de requête ne sont pas enregistrés comme données métier. Les profils et affectations révoqués restent dans la base pour préserver l’historique. Les contraintes d’unicité ajoutées aux modèles sont créées pour les nouvelles bases; `create_all()` ne met pas à niveau les tables déjà existantes. Les migrations de schéma sont hors du périmètre de TTL-LAMa : l’administrateur de la base applique les évolutions indiquées dans le journal des modifications de chaque version.
 
 ## Composants
 

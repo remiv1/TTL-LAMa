@@ -40,6 +40,40 @@ def _write_config(path: Path, configuration: dict[str, object]) -> None:
     path.write_text(yaml.safe_dump(configuration, sort_keys=False), encoding="utf-8")
 
 
+def test_login_lock_settings_load_from_nested_yaml() -> None:
+    """The login retry and lock-duration settings are read from the auth section."""
+    configuration = _valid_configuration()
+    auth = cast(dict[str, object], configuration["auth"])
+    auth["max_connect_retry"] = 5
+    auth["login_lock_duration_seconds"] = 600
+
+    settings = FlaskSettings.model_validate(configuration)
+
+    assert settings.MAX_CONNECT_RETRY == 5
+    assert settings.LOGIN_LOCK_DURATION_SECONDS == 600
+
+
+@pytest.mark.parametrize(
+    "key,value",
+    [
+        ("max_connect_retry", 0),
+        ("max_connect_retry", 101),
+        ("login_lock_duration_seconds", 0),
+        ("login_lock_duration_seconds", 86401),
+    ],
+)
+def test_login_lock_settings_reject_out_of_range_values(
+    key: str,
+    value: int,
+) -> None:
+    """Retry and lock duration settings must remain within supported bounds."""
+    configuration = _valid_configuration()
+    cast(dict[str, object], configuration["auth"])[key] = value
+
+    with pytest.raises(ValidationError):
+        FlaskSettings.model_validate(configuration)
+
+
 def _admin_headers(domain: object) -> dict[str, str]:
     return cast(dict[str, str], getattr(domain, "headers"))
 

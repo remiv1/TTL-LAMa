@@ -24,6 +24,21 @@ class FakeUserService:
             return self.user
         return None
 
+    def is_login_locked(self, user: SimpleNamespace) -> bool: # pylint: disable=W0613
+        """Report that the test account is not locked."""
+        return False
+
+    def record_failed_login(
+        self,
+        user: SimpleNamespace,
+        maximum_attempts: int,
+        lock_duration_seconds: int,
+    ) -> None:
+        """Ignore failed attempts in this backend unit-test fake."""
+
+    def reset_login_attempts(self, user: SimpleNamespace) -> None:
+        """Ignore successful-login resets in this backend unit-test fake."""
+
 
 class FakePasswordHasher:
     """Test password hasher that records verification arguments."""

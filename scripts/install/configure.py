@@ -52,6 +52,8 @@ CONTAINER_GID = 999
 DEFAULT_CLI_PATH = "/opt/ttl-lama-cli/bin/ttlama"
 WRAPPER_PATH = "/usr/local/sbin/ttlama-ssh-wrapper"
 VPN_HOST_SETUP_FILE = "vpn-host-setup.sh"
+DEFAULT_MAX_CONNECT_RETRY = 3
+DEFAULT_LOGIN_LOCK_DURATION_SECONDS = 900
 VOLUME_MOUNT_PREFIX = "  -v "
 WIREGUARD_PUBLIC_KEY_PLACEHOLDER = "REPLACE_WITH_WIREGUARD_PUBLIC_KEY"
 INSTALL_CONFIG_PATH = Path("etc/ttl-lama")
@@ -341,6 +343,18 @@ def _collect_authentication() -> tuple[dict[str, Any], bool]:
     if auth_mode == "internal":
         return {
             "mode": "internal",
+            "max_connect_retry": ask_int(
+                "Consecutive failed logins before temporary lock",
+                DEFAULT_MAX_CONNECT_RETRY,
+                1,
+                100,
+            ),
+            "login_lock_duration_seconds": ask_int(
+                "Temporary login lock duration in seconds",
+                DEFAULT_LOGIN_LOCK_DURATION_SECONDS,
+                1,
+                86400,
+            ),
             "admin": {
                 "username": ask_text("Initial administrator username", "admin"),
                 "password": ask_secret("Initial administrator password"),
@@ -348,6 +362,8 @@ def _collect_authentication() -> tuple[dict[str, Any], bool]:
         }, False
     return {
         "mode": "external",
+        "max_connect_retry": DEFAULT_MAX_CONNECT_RETRY,
+        "login_lock_duration_seconds": DEFAULT_LOGIN_LOCK_DURATION_SECONDS,
         "admin": {"username": ask_text("Administrator username", "admin")},
         "oidc": {
             "issuer": ask_text("OIDC issuer URL"),

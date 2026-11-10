@@ -14,7 +14,7 @@ Identity -> Device -> Access Profile -> Lease -> Access Backend
 
 An identity represents a user to whom TTL-LAMa can grant permissions. Two authentication modes are planned:
 
-- **`internal`**: TTL-LAMa manages user accounts and the mechanisms required to authenticate them, including multi-factor authentication.
+- **`internal`**: TTL-LAMa manages user accounts and the mechanisms required to authenticate them. MFA is planned for V2 and is not included in the prototype.
 - **`external`**: authentication is delegated to an identity provider, initially through OIDC.
 
 Both modes produce an identity for the domain core. Lease, device, and profile logic does not depend on how that identity was authenticated.
@@ -103,7 +103,7 @@ The following objects correspond to the current SQLAlchemy tables. Identity, dev
 | Lease (`leases`) | Integer ID, `user_id`, `device_id`, `profile_user_id`, `created_at`, `ended_at`, `revoked_at` | References the identity, device, and profile assignment. Multiple historical leases may be retained. API status is computed, not persisted: revoked when `revoked_at` is set, otherwise expired when `ended_at` is reached, otherwise pending/failed according to provisioning, otherwise active. |
 | Provisioning (`lease_provisioning`) | Lease ID, backend JSON document, state, error code | One immutable document stores the backend snapshot, including the public key. Persisted states include `pending_apply`, `applied`, `pending_delete`, `deleted`, and `uncertain`; `applying` and `deleting` are transient claims persisted during backend calls. `uncertain` is a recoverable state retried by the scheduler, not a terminal state. |
 
-Passwords are stored only as Argon2 hashes in credentials; sessions store a token hash, not the raw token. Client private keys, configuration secrets, and request bodies are not stored as domain data. Revoked profiles and assignments remain in the database to preserve history. The model uniqueness constraints are created for new databases; `create_all()` does not upgrade existing tables, which require a separate migration.
+Passwords are stored only as Argon2 hashes in credentials; sessions store a token hash, not the raw token. Client private keys, configuration secrets, and request bodies are not stored as domain data. Revoked profiles and assignments remain in the database to preserve history. Model uniqueness constraints are created for new databases; `create_all()` does not upgrade existing tables. Schema migrations are outside TTL-LAMa's scope: database administrators apply changes described in each release's changelog.
 
 ## Components
 

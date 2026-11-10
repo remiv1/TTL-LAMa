@@ -8,10 +8,11 @@
 """
 from __future__ import annotations
 
+from datetime import datetime
 from typing import TYPE_CHECKING
 from uuid import UUID
 
-from sqlalchemy import Integer, Boolean
+from sqlalchemy import Boolean, DateTime, Integer
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from ._common import Base, TABLE_ARGS, user_id_column
@@ -48,6 +49,11 @@ class LoginState(Base):
         nullable=False,
         default=False,
         comment="Indicates whether the user's account is locked",
+    )
+    locked_until: Mapped[datetime | None] = mapped_column(
+        DateTime,
+        nullable=True,
+        comment="Timestamp until which the account is temporarily locked",
     )
     user: Mapped["User"] = relationship(
         "User",

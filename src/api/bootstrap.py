@@ -179,6 +179,8 @@ def _create_auth_manager(
         backend = InternalAuthBackend(
             user_service,
             password_hasher,
+            flask_settings.MAX_CONNECT_RETRY,
+            flask_settings.LOGIN_LOCK_DURATION_SECONDS,
         )
     return AuthManager(backend, session_service, user_service)
 
