@@ -6,9 +6,11 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+import secrets
 from typing import Protocol, cast
 
-from flask import Response
+from authlib.integrations.base_client.errors import OAuthError
+from flask import Response, session
 from joserfc.errors import JoseError
 from requests import post
 from requests.auth import HTTPBasicAuth
@@ -17,11 +19,27 @@ from requests.exceptions import RequestException
 from auth.backends.base import AuthBackend
 from auth.models import UnifiedUser, OIDCParams
 from auth.services import UserService
-from auth.exceptions import AccountNotFoundError, OIDCAuthenticationError
+from auth.exceptions import OIDCAuthenticationError
+
+class _OIDCFramework(Protocol):
+    """Protocol for Authlib's Flask state storage adapter."""
+    def get_state_data(self, session_data: object, state: str) -> object | None:
+        """Get pending authorization data for a state value."""
+        ... # pylint: disable=W2301
+
+    def clear_state_data(self, session_data: object, state: str) -> None:
+        """Remove pending authorization data for a state value."""
+        ... # pylint: disable=W2301
+
 
 class _OIDCClient(Protocol):    # pylint: disable=R0903
     """Protocol for OIDC client."""
-    def authorize_redirect(self, redirect_uri: str) -> Response:
+    @property
+    def framework(self) -> _OIDCFramework:
+        """Return the framework adapter used to manage OAuth state."""
+        ... # pylint: disable=W2301
+
+    def authorize_redirect(self, redirect_uri: str, **kwargs: object) -> Response:
         """Authorize a redirect to the OIDC provider's login page."""
         ... # pylint: disable=W2301
 
@@ -92,7 +110,10 @@ class OIDCAuthBackend(AuthBackend):
         :return: A Flask response to redirect the user to the OIDC provider's login page.
         :rtype: Response
         """
-        return self.oidc_client.authorize_redirect(self.redirect_uri)
+        return self.oidc_client.authorize_redirect(
+            self.redirect_uri,
+            nonce=secrets.token_urlsafe(32),
+        )
 
     def complete_login(self) -> UnifiedUser:
         """Complete an interactive login flow for OIDC.
@@ -102,8 +123,25 @@ class OIDCAuthBackend(AuthBackend):
 
         :raises OIDCAuthenticationError: If the login flow could not be completed successfully.
         """
-        token = self.oidc_client.authorize_access_token()
+        try:
+            token = self.oidc_client.authorize_access_token()
+        except (OAuthError, JoseError, RequestException, ValueError, KeyError) as error:
+            raise OIDCAuthenticationError(
+                "Unable to complete OIDC authentication."
+            ) from error
         return self._user_from_claims(token.get("userinfo"), allow_first_link=True)
+
+    def validate_error_state(self, state: object) -> bool:
+        """Validate and consume Authlib state when the provider returns an error."""
+        if not isinstance(state, str) or not state:
+            return False
+
+        framework = self.oidc_client.framework
+        if framework.get_state_data(session, state) is None:
+            return False
+
+        framework.clear_state_data(session, state)
+        return True
 
     def begin_device_authorization(
         self,
@@ -233,7 +271,7 @@ class OIDCAuthBackend(AuthBackend):
             )
         try:
             user_info = self.oidc_client.parse_id_token(payload, nonce=None)
-        except (JoseError, RequestException, ValueError) as error:
+        except (OAuthError, JoseError, RequestException, ValueError, KeyError) as error:
             raise OIDCAuthenticationError(
                 "Unable to verify the OIDC device identity."
             ) from error
@@ -258,6 +296,9 @@ class OIDCAuthBackend(AuthBackend):
             raise OIDCAuthenticationError("Failed to retrieve user info from OIDC provider.")
 
         claims = cast(Mapping[str, object], user_info)
+        issuer = claims.get("iss")
+        if not isinstance(issuer, str) or issuer != self.issuer:
+            raise OIDCAuthenticationError("Invalid issuer in OIDC identity.")
         subject = claims.get("sub")
         if not isinstance(subject, str) or not subject.strip():
             raise OIDCAuthenticationError("Invalid subject in user info from OIDC provider.")
@@ -276,7 +317,7 @@ class OIDCAuthBackend(AuthBackend):
                 subject,
             )
         if user is None:
-            raise AccountNotFoundError("No account found for the given OIDC subject.")
+            raise OIDCAuthenticationError("No account found for the OIDC identity.")
         if not user.enabled:
             raise OIDCAuthenticationError(
                 "The account associated with the OIDC subject is not enabled.",

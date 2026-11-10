@@ -148,7 +148,7 @@ Chaque grande ligne regroupe un chantier, chaque sous-tâche un résultat à obt
 ### 3.1 Terminer l’intégration OIDC
 
 - [x] Vérifier le flux existant contre les exigences OIDC retenues et les contrôles de sécurité attendus.
-- [ ] Gérer les erreurs d’échange, d’état, de nonce, d’émetteur et de validation des jetons.
+- [x] Gérer les erreurs d’échange, d’état, de nonce, d’émetteur et de validation des jetons.
 - [x] Définir la correspondance stable entre le sujet externe et l’identité locale.
 - [x] Tester le flux avec un fournisseur simulé et documenter un exemple de configuration.
 
@@ -160,38 +160,9 @@ Chaque grande ligne regroupe un chantier, chaque sous-tâche un résultat à obt
 
 ### 3.3 Ajouter l’observabilité
 
-- [ ] Définir les contrôles de santé et les indicateurs nécessaires à l’exploitation.
-- [ ] Exposer les métriques sans inclure d’identifiants ou de secrets inutiles.
 - [x] Journaliser explicitement les succès et les échecs des opérations sensibles, dont l’application et la suppression d’un bail ainsi que les réconciliations.
 - [x] Appliquer le format et la politique de niveaux définis en 1.6; centraliser les journaux de l’API et du scheduler dans des fichiers historiques séparés par niveau, avec rotation et conservation maîtrisées.
 - [x] Vérifier par des tests et une revue des chemins d’erreur qu’aucun secret ou contenu de fichier secret n’apparaît dans les journaux.
 - [x] Documenter les alertes utiles, notamment les échecs de réconciliation et de provisionnement.
 
-## 4. Préparer l’extensibilité et la publication
-
-### 4.1 Stabiliser les interfaces d’extension
-
-- [ ] Vérifier que le contrat du backend d’accès couvre les opérations réellement nécessaires au cycle de vie.
-- [ ] Documenter les garanties d’idempotence, les erreurs et les responsabilités de chaque backend.
-- [x] Ajouter un backend de test permettant de valider le cœur métier sans infrastructure réseau.
-
-### 4.2 Évaluer les extensions futures
-
-- [ ] Recueillir un cas d’usage concret avant de retenir un nouveau fournisseur d’identité ou backend d’accès.
-- [ ] Comparer les impacts de sécurité, d’exploitation et de maintenance.
-- [ ] N’ajouter une extension qu’après validation de son périmètre et de ses critères d’acceptation.
-
-### 4.3 Évaluer les approbations et l’API d’automatisation
-
-- [ ] Définir les cas nécessitant une approbation et les rôles autorisés à décider.
-- [ ] Décrire les états et délais supplémentaires avant de modifier le cycle de vie des baux.
-- [ ] Définir les clients, permissions, limites et traces d’audit de l’API d’automatisation.
-- [ ] Valider que les intégrations tierces ne peuvent ni élargir les profils ni contourner l’expiration.
-
-### 4.4 Préparer une version publique
-
-- [x] Choisir et documenter la licence avant une version stable.
-- [ ] Vérifier que les instructions d’installation, de configuration, de mise à jour et de sauvegarde sont complètes.
-- [ ] Définir une procédure de signalement des vulnérabilités et compléter les consignes de sécurité.
-- [x] Exécuter les tests et contrôles de sécurité prévus pour une publication (CI/CD créé et fonctionnel)
-- [ ] Définir les critères de version stable et les limites connues du produit.
+> Pas de métriques exposées, hors scope.

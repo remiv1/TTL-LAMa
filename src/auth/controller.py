@@ -6,10 +6,11 @@ import re
 from typing import cast
 from urllib.parse import urlencode, urlsplit, urlunsplit
 
-from flask import Response, current_app, jsonify, redirect, session
+from flask import Response, current_app, jsonify, redirect, session, url_for
 from werkzeug import Response as WerkzeugResponse
 
 from auth.manager import AuthManager
+from auth.exceptions import OIDCAuthenticationError
 from auth.models import AuthenticationResult, UnifiedUser
 from auth.services.cli_login_ticket import (
     CLI_LOGIN_TICKET_LIFETIME,
@@ -126,7 +127,10 @@ class AuthController:
             if not self._valid_cli_callback(callback_url, cli_state):
                 return jsonify(error="Invalid CLI login state"), 400
 
-            user = self.auth_manager.backend.complete_login()
+            try:
+                user = self.auth_manager.backend.complete_login()
+            except OIDCAuthenticationError:
+                return self._oidc_failure_response(context)
             ticket_service = CliLoginTicketService(
                 self.auth_manager.session_service.db_session,
                 CLI_LOGIN_TICKET_LIFETIME,
@@ -150,7 +154,10 @@ class AuthController:
             response.headers["Cache-Control"] = "no-store"
             return response
 
-        result = self.auth_manager.complete_login()
+        try:
+            result = self.auth_manager.complete_login()
+        except OIDCAuthenticationError:
+            return self._oidc_failure_response(None)
         app_config = cast(dict[str, object], current_app.config)
         target = cast(str, app_config.get("AUTH_SUCCESS_REDIRECT") or "/")
 
@@ -159,15 +166,29 @@ class AuthController:
         response.headers["Cache-Control"] = "no-store"
         return response
 
-    def oidc_error_callback(self) -> WerkzeugResponse | tuple[WerkzeugResponse, int]:
+    def oidc_error_callback(
+        self,
+        provider_state: object,
+    ) -> WerkzeugResponse | tuple[WerkzeugResponse, int]:
         """Return provider denial to a waiting CLI without exposing provider details."""
         cli_context = session.pop(_CLI_LOGIN_CONTEXT, None)
+        self.auth_manager.backend.validate_error_state(provider_state)
+        return self._oidc_failure_response(cli_context)
+
+    @staticmethod
+    def _oidc_failure_response(
+        cli_context: object,
+    ) -> WerkzeugResponse | tuple[WerkzeugResponse, int]:
+        """Return a generic, non-authenticating response for an OIDC failure."""
         if not isinstance(cli_context, dict):
-            return jsonify(error="OIDC authentication was not completed"), 400
+            response = redirect(url_for("web.login", error="oidc"))
+            response.headers["Cache-Control"] = "no-store"
+            return response
+
         context = cast(dict[str, object], cli_context)
         callback_url = context.get("callback_url")
         cli_state = context.get("state")
-        if not self._valid_cli_callback(callback_url, cli_state):
+        if not AuthController._valid_cli_callback(callback_url, cli_state):
             return jsonify(error="Invalid CLI login state"), 400
 
         callback_parts = urlsplit(cast(str, callback_url))

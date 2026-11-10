@@ -16,6 +16,7 @@ from api.common.db_objects.sessions import Session as UserSession
 from api.common.repositories import DeviceRepository, ProfileRepository, UserRepository
 from api.common.repositories.leases import utcnow
 from api.config.c_profiles import AccessProfile
+from auth.exceptions import OIDCAuthenticationError
 from auth.manager import AuthManager
 from auth.models import UnifiedUser
 
@@ -166,6 +167,38 @@ def test_oidc_cli_callback_issues_one_time_ticket_and_exchange_creates_session(
     assert manager.get_current_user(token) is not None
 
 
+def test_oidc_cli_exchange_failure_returns_no_ticket(
+    oidc_app: Flask,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An OIDC exchange failure returns a generic CLI error without a ticket."""
+    manager = cast(AuthManager, oidc_app.extensions["auth_manager"])
+    monkeypatch.setattr(manager.backend, "begin_login", lambda: redirect("https://idp.example"))
+
+    def fail_login() -> UnifiedUser:
+        raise OIDCAuthenticationError("provider response contained sensitive data")
+
+    monkeypatch.setattr(manager.backend, "complete_login", fail_login)
+    callback_url = "http://127.0.0.1:43210/callback"
+    cli_state = "state-value-that-is-long-enough-123456"
+    client = oidc_app.test_client()
+
+    login = client.get(
+        "/auth/login",
+        query_string={"cli_callback_url": callback_url, "cli_state": cli_state},
+    )
+    assert login.status_code == 302
+
+    callback = client.get("/auth/callback?code=private-code&state=provider-state")
+
+    assert callback.status_code == 302
+    assert callback.headers["Cache-Control"] == "no-store"
+    assert "sensitive data" not in callback.get_data(as_text=True)
+    parameters = parse_qs(urlsplit(callback.headers["Location"]).query)
+    assert parameters == {"state": [cli_state], "error": ["access_denied"]}
+    assert "ticket" not in parameters
+
+
 def test_oidc_cli_login_rejects_non_loopback_callback(oidc_app: Flask) -> None:
     """The OIDC login route refuses callback URLs outside IPv4 loopback."""
     response = oidc_app.test_client().get(
@@ -179,13 +212,26 @@ def test_oidc_cli_login_rejects_non_loopback_callback(oidc_app: Flask) -> None:
     assert response.status_code == 400
 
 
+@pytest.mark.parametrize(
+    ("provider_state", "expected_valid"),
+    [("oauth-state", True), ("unmatched-state", False)],
+)
 def test_oidc_provider_denial_returns_to_the_waiting_cli(
     oidc_app: Flask,
     monkeypatch: pytest.MonkeyPatch,
+    provider_state: str,
+    expected_valid: bool,
 ) -> None:
-    """A provider denial returns a state-bound error to the loopback listener."""
+    """Provider errors are rejected or returned without creating a login ticket."""
     manager = cast(AuthManager, oidc_app.extensions["auth_manager"])
     monkeypatch.setattr(manager.backend, "begin_login", lambda: redirect("https://idp.example"))
+    validated_states: list[object] = []
+
+    def validate_error_state(state: object) -> bool:
+        validated_states.append(state)
+        return state == "oauth-state"
+
+    monkeypatch.setattr(manager.backend, "validate_error_state", validate_error_state)
     callback_url = "http://127.0.0.1:43210/callback"
     cli_state = "state-value-that-is-long-enough-123456"
     client = oidc_app.test_client()
@@ -196,12 +242,17 @@ def test_oidc_provider_denial_returns_to_the_waiting_cli(
     )
     assert login.status_code == 302
 
-    denial = client.get("/auth/callback?error=access_denied&state=oauth-state")
+    denial = client.get(
+        "/auth/callback",
+        query_string={"error": "access_denied", "state": provider_state},
+    )
     assert denial.status_code == 302
     assert denial.headers["Cache-Control"] == "no-store"
     parameters = parse_qs(urlsplit(denial.headers["Location"]).query)
     assert parameters == {"state": [cli_state], "error": ["access_denied"]}
     assert "ticket" not in parameters
+    assert validated_states == [provider_state]
+    assert expected_valid is (provider_state == "oauth-state")
 
 
 def test_oidc_device_authorization_waits_for_provider_approval(

@@ -67,6 +67,7 @@ TEXT = {
 		"username": "Username",
 		"password": "Password",
 		"invalid_login": "The username or password is not valid.",
+		"oidc_login_error": "Sign-in could not be completed. Please try again.",
 		"submit_login": "Continue",
 		"account_title": "Account and session",
 		"session_active": "Your session is active.",
@@ -195,6 +196,7 @@ TEXT = {
 		"username": "Nom d’utilisateur",
 		"password": "Mot de passe",
 		"invalid_login": "Le nom d’utilisateur ou le mot de passe est invalide.",
+		"oidc_login_error": "La connexion n’a pas pu aboutir. Veuillez réessayer.",
 		"submit_login": "Continuer",
 		"account_title": "Compte et session",
 		"session_active": "Votre session est active.",
@@ -353,7 +355,7 @@ def login() -> WerkzeugResponse | str:
     :rtype: WerkzeugResponse | str
     """
     config = cast(dict[str, object], current_app.config)
-    if config.get("AUTH_MODE") != "internal":
+    if config.get("AUTH_MODE") != "internal" and request.args.get("error") != "oidc":
         return redirect(url_for("auth.login"))
     return _render_page(
         "login.html",

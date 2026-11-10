@@ -78,5 +78,5 @@ def call_back() -> WerkzeugResponse | tuple[WerkzeugResponse, int]:
     """Handle the callback from the OIDC provider."""
     controller = AuthController(get_manager())
     if request.args.get("error"):
-        return controller.oidc_error_callback()
+        return controller.oidc_error_callback(request.args.get("state"))
     return controller.oidc_callback()

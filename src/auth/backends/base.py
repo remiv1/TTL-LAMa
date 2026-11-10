@@ -55,6 +55,16 @@ class AuthBackend(ABC):
         """
         raise NotImplementedError
 
+    def validate_error_state(self, state: object) -> bool:  # pylint: disable=W0613
+        """Validate and consume a provider state for an error callback.
+
+        :param state: Provider state received with an authorization error.
+        :type state: object
+        :return: Whether the state belongs to a pending login.
+        :rtype: bool
+        """
+        return False
+
     def begin_device_authorization(
         self,
         client_id: str,

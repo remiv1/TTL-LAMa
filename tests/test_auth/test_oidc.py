@@ -4,14 +4,15 @@ from collections.abc import Mapping
 from typing import cast
 import pytest
 
-from flask import Response
+from authlib.integrations.base_client.errors import OAuthError
 from authlib.integrations.flask_client.apps import FlaskOAuth2App
+from flask import Flask, Response
 
 from api.common.db_objects import User
 from auth.backends.oidc import OIDCAuthBackend
 from auth.models import OIDCParams, UnifiedUser
 from auth.services import UserService
-from auth.exceptions import AccountNotFoundError, OIDCAuthenticationError
+from auth.exceptions import OIDCAuthenticationError
 
 
 class FakeOIDCClient:   # pylint: disable=R0903
@@ -20,23 +21,32 @@ class FakeOIDCClient:   # pylint: disable=R0903
         self.token = (
             token
             if token is not None
-            else {"userinfo": {"sub": "known-subject"}}
+            else {"userinfo": {"sub": "known-subject", "iss": "http://dex:5556/dex"}}
         )
         self.redirect_uri: str | None = None
+        self.redirect_kwargs: dict[str, object] = {}
         self.redirect_response = Response(status=302)
+        self.framework = FakeOIDCFramework()
+        self.access_token_error: Exception | None = None
         self.metadata: dict[str, object] = {
             "device_authorization_endpoint": "https://idp.example/device",
             "token_endpoint": "https://idp.example/token",
         }
-        self.device_user_info: Mapping[str, object] = {"sub": "known-subject"}
+        self.device_user_info: Mapping[str, object] = {
+            "sub": "known-subject",
+            "iss": "http://dex:5556/dex",
+        }
 
     def authorize_access_token(self) -> dict[str, object]:
         """Simulate the retrieval of an access token with user info."""
+        if self.access_token_error is not None:
+            raise self.access_token_error
         return cast(dict[str, object], self.token)
 
-    def authorize_redirect(self, redirect_uri: str) -> Response:
+    def authorize_redirect(self, redirect_uri: str, **kwargs: object) -> Response:
         """Simulate the authorization redirect."""
         self.redirect_uri = redirect_uri
+        self.redirect_kwargs = kwargs
         return self.redirect_response
 
     def load_server_metadata(self) -> dict[str, object]:
@@ -55,6 +65,23 @@ class FakeOIDCClient:   # pylint: disable=R0903
         """Return claims after simulating Authlib ID token validation."""
         assert nonce is None
         return self.device_user_info
+
+
+class FakeOIDCFramework:
+    """Fake Authlib state storage adapter."""
+
+    def __init__(self) -> None:
+        self.pending_states: dict[str, object] = {}
+        self.cleared_states: list[str] = []
+
+    def get_state_data(self, _session_data: object, state: str) -> object | None:
+        """Return pending state data when present."""
+        return self.pending_states.get(state)
+
+    def clear_state_data(self, _session_data: object, state: str) -> None:
+        """Consume pending state data."""
+        self.pending_states.pop(state, None)
+        self.cleared_states.append(state)
 
 
 class FakeProviderResponse:  # pylint: disable=R0903
@@ -136,10 +163,80 @@ def test_complete_login_rejects_unknown_identity() -> None:
         oidc_params=oidc_params,
     )
 
-    with pytest.raises(AccountNotFoundError):
+    with pytest.raises(OIDCAuthenticationError):
         backend.complete_login()
 
     assert user_service.lookup == ("http://dex:5556/dex", "known-subject")
+
+
+def test_complete_login_normalizes_provider_exchange_error() -> None:
+    """Do not expose provider details when the authorization exchange fails."""
+    oidc_client = FakeOIDCClient()
+    oidc_client.access_token_error = OAuthError("invalid_grant")
+    backend = OIDCAuthBackend(
+        cast(UserService, FakeUserService(None)),
+        OIDCParams(
+            oidc_client=cast(FlaskOAuth2App, oidc_client),
+            issuer="http://dex:5556/dex",
+            redirect_uri="http://localhost/auth/callback",
+        ),
+    )
+
+    with pytest.raises(OIDCAuthenticationError) as error:
+        backend.complete_login()
+
+    assert str(error.value) == "Unable to complete OIDC authentication."
+    assert "invalid_grant" not in str(error.value)
+
+
+@pytest.mark.parametrize("issuer_claim", [None, "https://untrusted.example"])
+def test_complete_login_rejects_missing_or_mismatched_issuer(
+    issuer_claim: str | None,
+) -> None:
+    """Reject identities without the configured issuer before local lookup."""
+    claims: dict[str, object] = {"sub": "known-subject"}
+    if issuer_claim is not None:
+        claims["iss"] = issuer_claim
+    user_service = FakeUserService(None)
+    backend = OIDCAuthBackend(
+        cast(UserService, user_service),
+        OIDCParams(
+            oidc_client=cast(
+                FlaskOAuth2App,
+                FakeOIDCClient({"userinfo": claims}),
+            ),
+            issuer="http://dex:5556/dex",
+            redirect_uri="http://localhost/auth/callback",
+        ),
+    )
+
+    with pytest.raises(OIDCAuthenticationError):
+        backend.complete_login()
+
+    assert user_service.lookup is None
+
+
+def test_validate_error_state_consumes_only_pending_state() -> None:
+    """A provider error state is valid once and is then removed from the session."""
+    oidc_client = FakeOIDCClient()
+    oidc_client.framework.pending_states["pending-state"] = {"nonce": "stored-nonce"}
+    backend = OIDCAuthBackend(
+        cast(UserService, FakeUserService(None)),
+        OIDCParams(
+            oidc_client=cast(FlaskOAuth2App, oidc_client),
+            issuer="http://dex:5556/dex",
+            redirect_uri="http://localhost/auth/callback",
+        ),
+    )
+    app = Flask(__name__)
+    app.secret_key = "test-secret"
+
+    with app.test_request_context("/auth/callback"):
+        assert backend.validate_error_state("pending-state")
+        assert not backend.validate_error_state("pending-state")
+        assert not backend.validate_error_state(None)
+
+    assert oidc_client.framework.cleared_states == ["pending-state"]
 
 
 def test_complete_login_links_first_admin_identity_on_matching_username() -> None:
@@ -156,6 +253,7 @@ def test_complete_login_links_first_admin_identity_on_matching_username() -> Non
         "userinfo": {
             "sub": "first-subject",
             "preferred_username": "admin",
+            "iss": "http://dex:5556/dex",
         },
     })
     backend = OIDCAuthBackend(
@@ -191,6 +289,7 @@ def test_complete_login_does_not_link_first_identity_for_different_username() ->
         "userinfo": {
             "sub": "other-subject",
             "preferred_username": "alice",
+            "iss": "http://dex:5556/dex",
         },
     })
     backend = OIDCAuthBackend(
@@ -203,7 +302,7 @@ def test_complete_login_does_not_link_first_identity_for_different_username() ->
         initial_admin_username="admin",
     )
 
-    with pytest.raises(AccountNotFoundError):
+    with pytest.raises(OIDCAuthenticationError):
         backend.complete_login()
 
     assert user_service.first_link_call is None
@@ -281,6 +380,8 @@ def test_begin_login_redirects_to_oidc_provider() -> None:
 
     assert response is oidc_client.redirect_response
     assert oidc_client.redirect_uri == redirect_uri
+    assert isinstance(oidc_client.redirect_kwargs.get("nonce"), str)
+    assert len(cast(str, oidc_client.redirect_kwargs["nonce"])) >= 32
 
 
 def test_begin_device_authorization_returns_only_provider_device_fields(
@@ -379,6 +480,10 @@ def test_poll_device_authorization_resolves_linked_user(
     )
     user_service = FakeUserService(local_user)
     oidc_client = FakeOIDCClient()
+    oidc_client.device_user_info = {
+        "sub": "known-subject",
+        "iss": "https://idp.example",
+    }
     oidc_module_response = FakeProviderResponse(200, {"access_token": "provider-token"})
     def provider_post(*_args: object, **_kwargs: object) -> FakeProviderResponse:
         return oidc_module_response
@@ -411,6 +516,41 @@ def test_poll_device_authorization_resolves_linked_user(
     assert user_service.lookup == ("https://idp.example", "known-subject")
 
 
+def test_poll_device_authorization_rejects_mismatched_issuer(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Reject a device ID token whose issuer differs from configured OIDC."""
+    from auth.backends import oidc as oidc_module # pylint: disable=C0415
+
+    oidc_client = FakeOIDCClient()
+    oidc_client.device_user_info = {
+        "sub": "known-subject",
+        "iss": "https://untrusted.example",
+    }
+    user_service = FakeUserService(None)
+    def provider_post(*_args: object, **_kwargs: object) -> FakeProviderResponse:
+        return FakeProviderResponse(200, {"access_token": "provider-token"})
+
+    monkeypatch.setattr(oidc_module, "post", provider_post)
+    backend = OIDCAuthBackend(
+        cast(UserService, user_service),
+        OIDCParams(
+            oidc_client=cast(FlaskOAuth2App, oidc_client),
+            issuer="https://idp.example",
+            redirect_uri="http://localhost/auth/callback",
+        ),
+    )
+
+    with pytest.raises(OIDCAuthenticationError):
+        backend.poll_device_authorization(
+            "private-device-code",
+            "cli-client",
+            "client-secret",
+        )
+
+    assert user_service.lookup is None
+
+
 @pytest.mark.parametrize(
     ("preferred_username", "expected_link"),
     [("admin", True), ("alice", False)],
@@ -435,6 +575,7 @@ def test_poll_device_authorization_links_first_admin_only_for_matching_username(
     oidc_client.device_user_info = {
         "sub": "first-subject",
         "preferred_username": preferred_username,
+        "iss": "https://idp.example",
     }
 
     def provider_post(*_args: object, **_kwargs: object) -> FakeProviderResponse:
@@ -464,7 +605,7 @@ def test_poll_device_authorization_links_first_admin_only_for_matching_username(
             "first-subject",
         )
     else:
-        with pytest.raises(AccountNotFoundError):
+        with pytest.raises(OIDCAuthenticationError):
             backend.poll_device_authorization(
                 "private-device-code",
                 "cli-client",

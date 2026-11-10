@@ -4,12 +4,15 @@ from datetime import timedelta
 from typing import cast
 
 import pytest
+from authlib.integrations.flask_client.apps import FlaskOAuth2App
 from flask import Response
 from flask import Flask
 from flask.testing import FlaskClient
 from werkzeug.test import TestResponse
+from sqlalchemy import select
 
 from api.common.db_objects import User, UserLoginState, UserOIDCUser
+from api.common.db_objects.sessions import Session as UserSession
 from api.common.repositories.leases import utcnow
 from auth.backends import OIDCAuthBackend
 from auth.manager import AuthManager
@@ -39,9 +42,10 @@ def test_login_starts_oidc_flow(
         monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Test that the login route initiates the OIDC flow."""
-    def authorize_redirect(redirect_uri: str) -> Response:
+    def authorize_redirect(redirect_uri: str, **kwargs: object) -> Response:
         """Mock authorize_redirect to capture the redirect URI."""
         redirect_uris.append(redirect_uri)
+        assert isinstance(kwargs.get("nonce"), str)
         return Response(
             status=302,
             headers={"Location": "https://dex.example/authorize"}
@@ -83,11 +87,15 @@ def test_oidc_callback_records_last_login(
 
     manager = cast(AuthManager, oidc_app.extensions["auth_manager"])
     backend = cast(OIDCAuthBackend, manager.backend)
-    monkeypatch.setattr(
-        backend.oidc_client,
-        "authorize_access_token",
-        lambda: {"userinfo": {"sub": "oidc-last-login-subject"}},
-    )
+    def authorize_access_token() -> dict[str, object]:
+        return {
+            "userinfo": {
+                "sub": "oidc-last-login-subject",
+                "iss": cast(str, oidc_app.config["OIDC_ISSUER"]),
+            },
+        }
+
+    monkeypatch.setattr(backend.oidc_client, "authorize_access_token", authorize_access_token)
 
     response = oidc_app.test_client().get("/auth/callback")
 
@@ -95,6 +103,111 @@ def test_oidc_callback_records_last_login(
     persisted_user = manager.user_service.get_by_username("oidc-last-login")
     assert persisted_user is not None
     assert persisted_user.last_login is not None
+
+
+def test_oidc_callback_exchange_failure_creates_no_session_or_auth_cookie(
+    oidc_app: Flask,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A failed provider exchange returns a generic error without authenticating."""
+    manager = cast(AuthManager, oidc_app.extensions["auth_manager"])
+    database_session = manager.session_service.db_session
+    existing_session_ids = {
+        item.id for item in database_session.scalars(select(UserSession)).all()
+    }
+    backend = cast(OIDCAuthBackend, manager.backend)
+
+    def fail_exchange() -> dict[str, object]:
+        raise ValueError("provider response included sensitive details")
+
+    monkeypatch.setattr(backend.oidc_client, "authorize_access_token", fail_exchange)
+    client = oidc_app.test_client()
+    response = client.get("/auth/callback?code=private-code&state=provider-state")
+
+    assert response.status_code == 302
+    assert response.headers["Location"] == "/login?error=oidc"
+    assert response.headers["Cache-Control"] == "no-store"
+    assert "sensitive details" not in response.get_data(as_text=True)
+    _assert_auth_cookie_not_set(response, oidc_app)
+    assert {
+        item.id for item in database_session.scalars(select(UserSession)).all()
+    } == existing_session_ids
+
+
+def test_oidc_provider_error_shows_generic_login_message(
+    oidc_app: Flask,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A provider error is displayed generically and never sets an auth cookie."""
+    manager = cast(AuthManager, oidc_app.extensions["auth_manager"])
+    backend = cast(OIDCAuthBackend, manager.backend)
+    validated_states: list[object] = []
+
+    def reject_state(state: object) -> bool:
+        validated_states.append(state)
+        return False
+
+    monkeypatch.setattr(backend, "validate_error_state", reject_state)
+    client = oidc_app.test_client()
+    client.set_cookie("ttl_lama_language", "fr")
+    response = client.get(
+        "/auth/callback?error=provider-secret&state=invalid-state",
+    )
+
+    assert response.status_code == 302
+    assert response.headers["Location"] == "/login?error=oidc"
+    assert validated_states == ["invalid-state"]
+    _assert_auth_cookie_not_set(response, oidc_app)
+
+    page = client.get(response.headers["Location"])
+    assert page.status_code == 200
+    assert "La connexion n’a pas pu aboutir." in page.get_data(as_text=True)
+    assert "name=\"password\"" not in page.get_data(as_text=True)
+
+
+def test_oidc_error_callback_consumes_authlib_state(oidc_app: Flask) -> None:
+    """The provider error callback consumes the state stored by Authlib."""
+    manager = cast(AuthManager, oidc_app.extensions["auth_manager"])
+    backend = cast(OIDCAuthBackend, manager.backend)
+    oidc_client = cast(FlaskOAuth2App, backend.oidc_client)
+    provider_state = "stored-provider-state"
+    client = oidc_app.test_client()
+
+    with client.session_transaction() as browser_session:
+        oidc_client.framework.set_state_data(
+            browser_session,
+            provider_state,
+            {"nonce": "stored-nonce"},
+        )
+
+    response = client.get(
+        "/auth/callback",
+        query_string={"error": "access_denied", "state": provider_state},
+    )
+
+    assert response.status_code == 302
+    assert response.headers["Location"] == "/login?error=oidc"
+    _assert_auth_cookie_not_set(response, oidc_app)
+    with client.session_transaction() as browser_session:
+        assert oidc_client.framework.get_state_data(
+            browser_session,
+            provider_state,
+        ) is None
+
+
+def test_oidc_callback_rejects_unknown_authlib_state(oidc_app: Flask) -> None:
+    """An unknown authorization state fails before exchange or session creation."""
+    client = oidc_app.test_client()
+
+    response = client.get(
+        "/auth/callback",
+        query_string={"code": "private-code", "state": "unknown-provider-state"},
+    )
+
+    assert response.status_code == 302
+    assert response.headers["Location"] == "/login?error=oidc"
+    _assert_auth_cookie_not_set(response, oidc_app)
+
 
 def test_internal_login_sets_http_only_cookie(app: Flask) -> None:
     """Sets the session cookie without exposing the token in the response body."""
