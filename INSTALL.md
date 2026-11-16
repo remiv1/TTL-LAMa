@@ -115,3 +115,19 @@ Le questionnaire Python valide les réponses et écrit les fichiers structurés;
 - Vérifier les règles avec `visudo -cf`; ne pas autoriser un `sudo` générique.
 - Confirmer explicitement la création/révocation de comptes et la rotation des clés.
 - Le backend serveur WireGuard est intégré au scheduler via SSH. La réconciliation complète des pairs a lieu au démarrage du scheduler; seul le traitement des opérations en attente est périodique. OpenVPN reste une option du questionnaire, pas un backend serveur intégré.
+
+## Download a release package
+
+The installer can be retrieved without cloning the repository. Download and
+verify the latest release archive, then follow the included `README.md`:
+
+```sh
+wget https://github.com/remiv1/ttl-lama/releases/latest/download/ttlama-installer.tar.gz
+wget https://github.com/remiv1/ttl-lama/releases/latest/download/ttlama-installer.tar.gz.sha256
+sha256sum -c ttlama-installer.tar.gz.sha256
+tar -xzf ttlama-installer.tar.gz
+```
+
+The package README contains the commands to create a virtual environment and
+run the installer. To pin a release, use its versioned archive URL instead of
+the `latest` URL. The application image must be available separately.

@@ -1,0 +1,44 @@
+name: Installer release
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: read
+
+jobs:
+  package:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout release tag
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event.release.tag_name }}
+
+      - name: Build installer archives
+        env:
+          VERSION: ${{ github.event.release.tag_name }}
+        run: |
+          output_dir="$RUNNER_TEMP/installer"
+          scripts/install/build-package.sh "$VERSION" "$output_dir"
+          cp "$output_dir/ttlama-installer-$VERSION.tar.gz" \
+            "$output_dir/ttlama-installer.tar.gz"
+          (
+            cd "$output_dir"
+            sha256sum ttlama-installer.tar.gz > ttlama-installer.tar.gz.sha256
+          )
+
+      - name: Upload installer archives
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ github.event.release.tag_name }}
+        run: |
+          gh release upload "$VERSION" \
+            "$RUNNER_TEMP/installer/ttlama-installer-$VERSION.tar.gz" \
+            "$RUNNER_TEMP/installer/ttlama-installer-$VERSION.tar.gz.sha256" \
+            "$RUNNER_TEMP/installer/ttlama-installer.tar.gz" \
+            "$RUNNER_TEMP/installer/ttlama-installer.tar.gz.sha256" \
+            --clobber
