@@ -4,7 +4,8 @@
     - `AccessPolicy`: Access rules constrained by a duration and allowed networks.
     - `AccessProfile`: Access policy assigned to a backend lease target.
     - `AccessProfiles`: Collection of persisted profile policies.
-    - `BackendConfig`: Backend interfaces loaded from a YAML file.
+    - `WireGuardProfile`: Named profile declaring a shared WireGuard interface.
+    - `BackendConfig`: Backend profiles loaded from a YAML file.
 
 .. functions::
     - `parse_duration`: Convert a compact duration into a Python duration.
@@ -117,6 +118,36 @@ class AccessProfile(AccessPolicy):
     .. version:: 1.0.0
     """
     lease_target: str = Field(min_length=1, max_length=255)
+    address_pools: list[IPvAnyNetwork] = Field(min_length=1)
+    endpoint: str = Field(pattern=r"^(?:\[[0-9a-fA-F:]+\]|[a-zA-Z0-9_.-]+):[0-9]{1,5}$")
+    public_key: str = Field(min_length=1, max_length=512, pattern=r"^[^\r\n]+$")
+
+    @field_validator("endpoint")
+    @classmethod
+    def validate_endpoint(cls, value: str) -> str:
+        """Validate the public endpoint port.
+
+        :param value: WireGuard endpoint in host:port notation.
+        :returns: The endpoint with a valid port.
+        :rtype: str
+        :raises ValueError: If the port is outside the UDP port range.
+        """
+        if not 1 <= int(value.rsplit(":", 1)[1]) <= 65535:
+            raise ValueError("The WireGuard endpoint port must be between 1 and 65535")
+        return value
+
+    @model_validator(mode="after")
+    def validate_connection(self) -> AccessProfile:
+        """Validate one address pool per IP family.
+
+        :returns: The validated profile.
+        :rtype: AccessProfile
+        :raises ValueError: If the endpoint or pools are inconsistent.
+        """
+        versions = [pool.version for pool in self.address_pools]
+        if len(versions) != len(set(versions)):
+            raise ValueError("Configure at most one client address pool per IP family")
+        return self
 
 
 class AccessProfiles(BaseModel):
@@ -133,13 +164,13 @@ class AccessProfiles(BaseModel):
     profiles: dict[str, AccessProfile] = Field(default_factory=dict)
 
 
-class WireGuardInterface(AccessPolicy):
-    """WireGuard interface settings that define an access profile.
+class WireGuardProfile(AccessProfile):
+    """Named access profile declaring its WireGuard interface.
 
-    :param name: The name of the WireGuard interface.
+    :param name: The name of the access profile.
     :type name: str
-    :param description: The description of the WireGuard interface.
-    :type description: str
+    :param interface: The shared WireGuard interface declared by the profile.
+    :type interface: str
     :param public_key: The public key of the WireGuard interface.
     :type public_key: str
 
@@ -147,16 +178,16 @@ class WireGuardInterface(AccessPolicy):
     .. version:: 1.0.0
     """
 
-    name: str = Field(min_length=1, max_length=255)
-    description: str = ""
-    public_key: str = Field(min_length=1, max_length=512)
+    name: str = Field(min_length=1, max_length=255, pattern=r"^\S(?:.*\S)?$")
+    lease_target: str = Field(alias="interface", min_length=1, max_length=15,
+                              pattern=r"^[a-zA-Z0-9_.-]+$")
 
 
 class WireGuardBackend(BaseModel):
     """WireGuard backend settings.
 
-    :param interfaces: The list of WireGuard interfaces for the backend.
-    :type interfaces: list[WireGuardInterface]
+    :param profiles: The access profiles declaring their WireGuard interfaces.
+    :type profiles: list[WireGuardProfile]
 
     .. author:: Rémi Verschuur <rverschuur@audit-io.fr>
     .. version:: 1.0.0
@@ -164,7 +195,7 @@ class WireGuardBackend(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    interfaces: list[WireGuardInterface] = Field(min_length=1)
+    profiles: list[WireGuardProfile] = Field(min_length=1)
 
 
 class BackendSection(BaseModel):
@@ -218,22 +249,25 @@ class BackendConfig(BaseModel):
 
     @model_validator(mode="after")
     def validate_unique_interfaces(self) -> BackendConfig:
-        """Reject duplicate interface targets and profile names.
+        """Validate unique profiles and consistent shared interface settings.
 
         :returns: The validated backend configuration.
         :rtype: BackendConfig
-        :raises ValueError: If an interface target or profile name is duplicated.
+        :raises ValueError: If profile names or shared settings are inconsistent.
         """
-        interfaces = self.backend.wireguard.interfaces
-        targets = [interface.name for interface in interfaces]
-        profile_names = [
-            interface.description.strip() or interface.name
-            for interface in interfaces
-        ]
-        if len(targets) != len(set(targets)):
-            raise ValueError("WireGuard interface names must be unique")
+        profiles = self.backend.wireguard.profiles
+        profile_names = [profile.name for profile in profiles]
         if len(profile_names) != len(set(profile_names)):
-            raise ValueError("Backend interface descriptions must be unique")
+            raise ValueError("WireGuard profile names must be unique")
+        connections: dict[str, tuple[str, str, frozenset[str]]] = {}
+        for profile in profiles:
+            connection = (profile.endpoint, profile.public_key,
+                          frozenset(str(pool) for pool in profile.address_pools))
+            previous = connections.setdefault(profile.lease_target, connection)
+            if previous != connection:
+                raise ValueError(
+                    "Profiles sharing an interface must use the same connection settings"
+                )
         return self
 
     @property
@@ -243,22 +277,17 @@ class BackendConfig(BaseModel):
         :returns: The interface names that can receive leases.
         :rtype: set[str]
         """
-        return {interface.name for interface in self.backend.wireguard.interfaces}
+        return {profile.lease_target for profile in self.backend.wireguard.profiles}
 
     @property
     def access_profiles(self) -> AccessProfiles:
-        """Convert configured interfaces into persisted profile policies.
+        """Convert configured profiles into persisted profile policies.
 
-        :returns: Profiles keyed by interface description, falling back to interface name.
+        :returns: Policies keyed by their explicit profile names.
         :rtype: AccessProfiles
         """
         profiles = {
-            interface.description.strip() or interface.name: AccessProfile(
-                lease_target=interface.name,
-                default_duration=interface.default_duration,
-                maximum_duration=interface.maximum_duration,
-                networks=interface.networks,
-            )
-            for interface in self.backend.wireguard.interfaces
+            profile.name: AccessProfile.model_validate(profile.model_dump(exclude={"name"}))
+            for profile in self.backend.wireguard.profiles
         }
         return AccessProfiles(profiles=profiles)

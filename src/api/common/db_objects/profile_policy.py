@@ -43,3 +43,6 @@ class ProfilePolicy(Base):
         nullable=False,
         comment="The networks associated with the profile policy",
     )
+    address_pools: Mapped[list[str]] = mapped_column(JSON, nullable=False)
+    endpoint: Mapped[str] = mapped_column(String(512), nullable=False)
+    public_key: Mapped[str] = mapped_column(String(512), nullable=False)

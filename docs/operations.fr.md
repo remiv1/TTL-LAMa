@@ -6,7 +6,9 @@ Ce document décrit le cycle de vie actuellement implémenté d’un bail et les
 
 Avant de démarrer APScheduler, le processus scheduler réconcilie l’état WireGuard avec les baux persistés. Il réapplique les peers actifs absents ou divergents, supprime les peers sans bail actif et restaure les jobs d’expiration. Les opérations WireGuard sont envoyées par SSH avec `sudo -n ttlama backend wg leases`. La réconciliation est exécutée au démarrage, pas périodiquement ; les opérations en attente et les suppressions échouées continuent d’être traitées par la scrutation du scheduler.
 
-Les réseaux du profil deviennent les `AllowedIPs` du pair. Sur une même interface, deux réservations ne peuvent pas partager une clé publique ni des réseaux qui se chevauchent. Une réservation reste occupée tant que la suppression n’est pas confirmée. Après une application au résultat incertain, elle reste réservée même si une suppression ultérieure réussit : une commande distante tardive peut encore modifier l’état du pair.
+Les adresses clientes deviennent les `AllowedIPs` du pair côté serveur ; les réseaux des profils sont des destinations de routage côté client. Les appareils peuvent partager les destinations et les profils partager une interface. L’allocation est persistante par appareil/interface ; la première adresse utilisable de chaque plage est réservée au routeur. Un appareil peut avoir un bail réservé par profil et plusieurs profils simultanés. Son pair est conservé jusqu’à la fin du dernier bail. Après une application incertaine, la réservation reste occupée même après compensation, car une commande distante tardive peut encore modifier le pair.
+
+TTL-LAMa ne lit ni ne modifie nftables au provisionnement ou à la réconciliation. L’installeur affiche des propositions de configuration externe, avec inclusion commentée facultative dans le script de l’hôte, sans les appliquer. Le filtrage, les routes de retour et le NAT éventuel relèvent de l’administrateur du routeur. Une expiration partielle sur un pair partagé ne retire pas de destination dans ce pare-feu externe.
 
 Le fichier `/etc/ttl-lama/ssh_config.yml` définit la connexion, la clé privée et le fichier `known_hosts`. Les délais en secondes sont configurables par `TTL_LAMA_SSH_COMMAND_TIMEOUT` (30 par défaut), `TTL_LAMA_PROVISIONING_WAIT_SECONDS` (45) et `TTL_LAMA_SCHEDULER_POLL_INTERVAL` (1). L’attente API doit normalement dépasser le délai SSH et l’intervalle de scrutation.
 
@@ -42,7 +44,7 @@ pending_apply -> applying -> applied -> deleting -> deleted
 
 ### Expiration et révocation
 
-Après la confirmation de l’application, APScheduler programme un job à `ended_at`. À son déclenchement, le scheduler relit l’état du bail et demande une suppression si le bail est révoqué ou échu. La révocation explicite renseigne `revoked_at` et demande aussi la suppression; le statut API devient `revoked` avant la fin de l’opération backend. Dans les deux cas, l’invariant est que l’accès d’un bail révoqué ou échu ne doit pas subsister.
+Après la confirmation de l’application, APScheduler programme un job à `ended_at`. À son déclenchement, le scheduler relit le bail et demande sa libération s’il est révoqué ou échu. La révocation explicite renseigne `revoked_at` ; le statut API devient `revoked` avant la confirmation backend. Le pair partagé est conservé tant qu’un autre bail le nécessite et supprimé après le dernier bail. Aucune règle du pare-feu externe n’est modifiée.
 
 ### Propriété des clés
 

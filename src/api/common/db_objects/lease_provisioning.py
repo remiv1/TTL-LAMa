@@ -2,6 +2,7 @@
 
 .. classes::
     - `LeaseProvisioning`: State shared by the API and scheduler.
+    - `PeerAllocation`: Persistent client addresses per device and interface.
     - `ProvisioningLock`: Serialize provisioning reservations.
 
 .. module_author:: Rémi Verschuur <rverschuur@audit-io.fr>
@@ -53,6 +54,23 @@ class LeaseProvisioning(Base):
         nullable=True,
         comment="Error message if the provisioning failed",
     )
+
+
+class PeerAllocation(Base):
+    """Keep client addresses stable for a device on a WireGuard interface.
+
+    .. author:: Rémi Verschuur <rverschuur@audit-io.fr>
+    .. version:: 1.0.0
+    """
+
+    __tablename__ = "peer_allocations"
+    __table_args__ = TABLE_ARGS
+
+    device_id: Mapped[int] = mapped_column(
+        ForeignKey(foreign_key_target("devices")), primary_key=True
+    )
+    interface: Mapped[str] = mapped_column(String(255), primary_key=True)
+    addresses: Mapped[list[str]] = mapped_column(JSON, nullable=False)
 
 
 class ProvisioningLock(Base):

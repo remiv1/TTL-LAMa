@@ -28,6 +28,8 @@ Each profile should provide only the access required for its intended use. For e
 
 Having VPN access does not necessarily mean having access to the entire private network.
 
+Destination filtering is an external router responsibility. TTL-LAMa manages leases and WireGuard peers only; it never reads or modifies nftables at runtime. The installer prints integration proposals and can include commented rules in the host preparation script, without applying them. Client-side `AllowedIPs` are editable routing parameters, not a server-enforced access-control list.
+
 ## Application Baseline
 
 In production, configuration must provide a Flask key of at least 32 characters and enable `Secure` cookies. Authentication is mandatory and must use either the internal account store or an external identity provider. Session cookies are `HttpOnly` and `SameSite=Lax`; state-changing requests are protected against CSRF.
@@ -38,13 +40,13 @@ The container runs without root privileges. Changing the authentication mode or 
 
 ## Automatic Revocation
 
-Expiration is an invariant of the security model. An expired lease must not merely appear as `EXPIRED` in the application; it must result in:
+Expiration changes the lease state and releases its claim on the device's WireGuard peer. Several profiles may have concurrent leases on the same device/interface. The peer is removed after the last active lease ends:
 
 ```text
-ACCESS = ABSENT
+LAST ACTIVE LEASE ENDS -> WIREGUARD PEER REMOVED
 ```
 
-The same applies to an explicitly revoked lease. Reconciliation must restore this invariant even if TTL-LAMa was unavailable at the time of expiration.
+The same applies to explicit revocation. Reconciliation restores the desired peer state after a restart. Partial expiration does not remove a destination from an external firewall while another lease keeps the peer active. An appropriate external policy is required; TTL-LAMa does not claim per-profile destination revocation or connection-tracking enforcement. Downloaded client configurations are snapshots and do not expire themselves.
 
 ## Auditability
 

@@ -158,6 +158,9 @@ TEXT = {
 		"confirm_revoke_lease": "Revoke lease",
 		"lease_revoke_success": "Access lease revoked.",
 		"lease_revoke_error": "The access lease could not be revoked.",
+		"download_wireguard": "Download WireGuard configuration",
+		"local_private_key": "Local private key or WireGuard configuration file",
+		"configuration_error": "Cannot export configuration. Check the local key and active lease.",
 	},
 	"fr": {
 		"brand": "TTL-LAMa",
@@ -288,6 +291,9 @@ TEXT = {
 		"confirm_revoke_lease": "Révoquer le bail",
 		"lease_revoke_success": "Le bail d’accès a été révoqué.",
 		"lease_revoke_error": "La révocation du bail d’accès a échoué.",
+		"download_wireguard": "Télécharger la configuration WireGuard",
+		"local_private_key": "Clé privée locale ou fichier de configuration WireGuard",
+		"configuration_error": "Export impossible. Vérifiez la clé locale et que le bail est actif.",
 	},
 }
 

@@ -108,6 +108,8 @@ def test_revoking_device_revokes_its_active_leases(app: Flask) -> None:
             maximum_duration="2h",
             lease_target="wg0",
             networks=[IPv4Network("10.44.0.0/24")],
+            address_pools=[IPv4Network("10.250.0.0/24")],
+            endpoint="vpn.example.test:51820", public_key="server-key",
         ),
     )
     profile_repository.assign(user, profile)
@@ -144,6 +146,8 @@ def test_user_lease_routes_apply_assignment_and_duration_policy(
             maximum_duration="2h",
             lease_target="wg0",
             networks=[IPv4Network(address="10.0.0.0/24")],
+            address_pools=[IPv4Network("10.250.0.0/24")],
+            endpoint="vpn.example.test:51820", public_key="server-key",
         ),
     )
     assignment = profile_repository.assign(user, profile)
@@ -237,6 +241,8 @@ def test_user_lease_creation_rejects_unowned_resources(
             maximum_duration="2h",
             lease_target="wg0",
             networks=[IPv4Network(address="10.0.0.0/24")],
+            address_pools=[IPv4Network("10.250.0.0/24")],
+            endpoint="vpn.example.test:51820", public_key="server-key",
         ),
     )
     database_session.commit()
@@ -310,6 +316,8 @@ def test_lease_creation_reports_ssh_failure(
     profile = profiles.create("failed-vpn-profile", AccessProfile(
         default_duration="1h", maximum_duration="2h", lease_target="wg-failure",
         networks=[IPv4Network("10.124.0.0/24")],
+        address_pools=[IPv4Network("10.250.0.0/24")],
+        endpoint="vpn.example.test:51820", public_key="server-key",
     ))
     profiles.assign(user, profile)
     device = DeviceRepository(session).create(user_id, "failed-vpn-device", "failure-key")
@@ -347,6 +355,8 @@ def test_lease_creation_timeout_requests_compensation(
     profile = profiles.create("timeout-vpn-profile", AccessProfile(
         default_duration="1h", maximum_duration="2h", lease_target="wg-timeout",
         networks=[IPv4Network("10.125.0.0/24")],
+        address_pools=[IPv4Network("10.250.0.0/24")],
+        endpoint="vpn.example.test:51820", public_key="server-key",
     ))
     profiles.assign(user, profile)
     device = DeviceRepository(session).create(user_id, "timeout-device", "timeout-key")

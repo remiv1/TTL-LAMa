@@ -166,3 +166,162 @@ Chaque grande ligne regroupe un chantier, chaque sous-tâche un résultat à obt
 - [x] Documenter les alertes utiles, notamment les échecs de réconciliation et de provisionnement.
 
 > Pas de métriques exposées, hors scope.
+
+## 4. Délier Interface et Profils
+
+### 4.1 Contexte et décisions validées
+
+Ce chantier permet à plusieurs profils utilisateurs de partager une même interface WireGuard tout en disposant de réseaux autorisés et de durées différents. Les sections précédentes décrivent le fonctionnement historique vérifié : leurs cases cochées ne prouvent pas que cette nouvelle architecture est déjà réalisée.
+
+Les décisions suivantes ont été précisées avec l’utilisateur :
+
+- Les profils sont l’entrée principale de la configuration. Chaque profil déclare son interface ; une interface peut être référencée par plusieurs profils. Ne pas conserver une liste d’interfaces qui génère implicitement un seul profil par interface.
+- Un bail est rattaché à un seul profil. Un seul bail réservé ou actif est autorisé par utilisateur/appareil/profil. Plusieurs profils peuvent avoir des baux simultanés pour un même appareil sur une interface : conserver le pair jusqu’à la fin du dernier bail.
+- `networks` contient les réseaux de destination auxquels le profil permet d’accéder, avec des CIDR IPv4 ou IPv6, notamment `/24`, `/32` ou `/128`. Il ne s’agit pas des adresses VPN attribuées au client.
+- Les réseaux autorisés peuvent être identiques ou se chevaucher entre profils et utilisateurs. Un profil Administrateur doit pouvoir accéder aux mêmes destinations que des profils plus restreints, simultanément sur `wg0`.
+- TTL-LAMa gère uniquement les baux et les pairs WireGuard. Le filtrage des destinations est une configuration externe sous la responsabilité de l’administrateur du routeur ; aucune opération nftables ne doit être réalisée par l’API, le scheduler ou le CLI des pairs.
+- L’installeur détermine les règles nftables d’intégration, les affiche clairement sur stdout et propose leur inclusion dans le script de préparation de l’hôte. Il ne les applique jamais lui-même et n’exécute pas le script généré.
+- Les `AllowedIPs` du client ne constituent pas une autorisation serveur. Sur un pair partagé, l’expiration partielle d’un profil ne garantit pas le retrait de ses destinations côté serveur ; une politique externe adaptée reste nécessaire. Aucun cumul dynamique de droits nftables n’est à implémenter.
+- Ces réseaux doivent également être exposés au client via l’API et repris dans les `AllowedIPs` de sa configuration WireGuard. L’utilisateur doit pouvoir récupérer facilement le fichier de configuration depuis le navigateur, puis l’importer dans son client WireGuard.
+- Aucune transition : ne prévoir ni migration des données existantes, ni compatibilité avec l’ancien format, ni conversion des anciens baux. Cette décision n’autorise pas une suppression automatique des données existantes.
+
+Format retenu : les paramètres techniques sont répétés et validés comme cohérents pour une interface partagée. La plage cliente ci-dessous est illustrative et doit être adaptée au déploiement ; sa première adresse utilisable est réservée au routeur.
+
+```yaml
+backend:
+  wireguard:
+    profiles:
+      - name: Administrateur
+        interface: wg0
+        endpoint: vpn.example.com:51820
+        public_key: REPLACE_WITH_WIREGUARD_PUBLIC_KEY
+        address_pools: [10.250.0.0/24]
+        default_duration: 1h
+        maximum_duration: 2h
+        networks:
+          - 10.100.0.0/24
+          - 10.10.0.0/24
+          - 10.20.0.0/24
+
+      - name: Utilisateur fichiers
+        interface: wg0
+        endpoint: vpn.example.com:51820
+        public_key: REPLACE_WITH_WIREGUARD_PUBLIC_KEY
+        address_pools: [10.250.0.0/24]
+        default_duration: 2h
+        maximum_duration: 8h
+        networks:
+          - 10.20.0.0/24
+
+      - name: Utilisateur Charlemagne
+        interface: wg0
+        endpoint: vpn.example.com:51820
+        public_key: REPLACE_WITH_WIREGUARD_PUBLIC_KEY
+        address_pools: [10.250.0.0/24]
+        default_duration: 1h
+        maximum_duration: 4h
+        networks:
+          - 10.10.0.0/24
+```
+
+### 4.2 État initial et cause du blocage
+
+Constats avant implémentation, conservés pour expliquer le changement. Les résultats actuels sont suivis en 4.4 à 4.8.
+
+- [src/api/config/c_profiles.py](src/api/config/c_profiles.py) : `WireGuardInterface` hérite actuellement de `AccessPolicy`. `BackendConfig.access_profiles` transforme chaque interface en profil, nommé d’après sa description ou son nom ; la validation interdit les interfaces dupliquées.
+- [src/api/bootstrap.py](src/api/bootstrap.py) : charge cette configuration, importe les profils manquants et conserve les cibles autorisées dans `BACKEND_LEASE_TARGETS`.
+- [src/api/common/db_objects/profile_policy.py](src/api/common/db_objects/profile_policy.py), [src/api/common/repositories/profiles.py](src/api/common/repositories/profiles.py) et [src/api/v1/admin/schemas.py](src/api/v1/admin/schemas.py) : les politiques persistées et l’API disposent déjà de `lease_target`, sans imposer une interface différente pour chaque profil. Le remplacement d’une politique révoque déjà les baux qui utilisaient l’ancienne.
+- [src/api/common/repositories/leases.py](src/api/common/repositories/leases.py) : `_ensure_available` refuse les réseaux qui chevauchent les réservations existantes sur une même interface ; `create` copie `policy.networks` dans `LeaseProvisioning.document["addresses"]`. Cela empêche aussi plusieurs équipements d’utiliser simultanément un même profil.
+- [cli/src/ttlama_cli/drivers/wireguard.py](cli/src/ttlama_cli/drivers/wireguard.py) : applique `addresses` avec `wg set <interface> peer <clé> allowed-ips ...`. Le contrat est défini dans [cli/src/ttlama_cli/drivers/_common.py](cli/src/ttlama_cli/drivers/_common.py) et lu par [cli/src/ttlama_cli/commands/backend/wireguard/peers.py](cli/src/ttlama_cli/commands/backend/wireguard/peers.py).
+- [src/vpn_backends/wireguard.py](src/vpn_backends/wireguard.py) : transmet les opérations au CLI installé sur l’hôte VPN via SSH. [src/scheduler/leases.py](src/scheduler/leases.py) réconcilie actuellement les pairs et leurs adresses, mais pas des droits de destination distincts.
+- [src/api/common/repositories/profiles.py](src/api/common/repositories/profiles.py) : `import_missing` initialise les profils sans remplacer les politiques déjà administrées en base. Ne pas supposer qu’une modification du YAML remplace automatiquement les politiques persistées.
+
+Point technique essentiel : les `AllowedIPs` du pair côté serveur servent au routage vers ce pair et à la validation de ses adresses sources ; ce ne sont pas des autorisations de destination. Un préfixe exact ne peut pas appartenir simultanément à plusieurs pairs sur une même interface. Il faut donc distinguer les adresses VPN clientes, utilisées côté serveur, des réseaux autorisés du profil, utilisés pour le filtrage serveur et les `AllowedIPs` côté client. Supprimer uniquement le contrôle de chevauchement actuel ne résout pas le problème.
+
+### 4.3 Décisions complémentaires et contrats à préciser
+
+- [x] Retenir une allocation automatique persistante par équipement/interface ; les plages IPv4/IPv6 sont configurables dans les profils et doivent être cohérentes entre profils partageant une interface.
+- [x] Retenir un seul bail réservé ou actif par utilisateur/appareil/profil et permettre plusieurs profils simultanés pour le même appareil ; le pair n’est retiré qu’après le dernier bail.
+- [x] Placer endpoint, clé publique serveur et plages VPN dans les profils ; vérifier leur cohérence pour une interface partagée.
+- [x] Conserver `interface` dans le YAML et `lease_target` dans l’API et la base, avec une conversion explicite dans `BackendConfig.access_profiles`.
+- [x] Garder nftables comme prérequis externe : recommandations sur stdout et inclusion optionnelle dans le script seulement ; aucune application par l’installeur, aucun contrôle ni aucune réconciliation nftables au runtime.
+- [x] Générer et conserver les clés privées côté client ; ne pas les transmettre ni les conserver côté serveur. Prévoir le parcours d’un équipement déjà enregistré.
+- [x] Obtenir l’autorisation d’implémenter et d’adapter les tests aux scénarios de 4.7, corrigés selon la responsabilité externe du pare-feu.
+
+### 4.4 Package CLI
+
+- [x] Conserver `VPNLease.addresses` pour les adresses du pair, distinctes des destinations du bail ; valider et normaliser les CIDR avant tout appel au driver privilégié.
+- [x] Vérifier les opérations locales `backend wg leases apply/delete/get/ls` avec les adresses clientes, y compris IPv4/IPv6 ; aucune commande, dépendance ou permission nftables ajoutée.
+- [x] Préserver l’idempotence et la compensation du provisionnement, avec maintien du pair partagé tant qu’un autre bail le nécessite.
+- [x] Ajouter `user leases configuration` : paramètres publics JSON/YAML ou assemblage local avec `--private-key-file` et `--output`, contrôle via `wg pubkey`, fichier neuf privé `0600`, sans impression ni transmission de la clé privée.
+- [x] Mettre à jour l’exemple [cli/docs/examples/profiles/profile-create.yaml](cli/docs/examples/profiles/profile-create.yaml), la référence et les documentations françaises et anglaises ; les entrées de création des baux restent des identifiants d’appareil/profil, sans réseaux fournis par l’utilisateur.
+- [x] Construire wheel et archive source CLI puis exécuter les tests contre la wheel installée, pas seulement contre le checkout. Utiliser le CLI distant et l’image serveur issus de la même révision, sans compatibilité avec l’ancien schéma.
+
+### 4.5 Package Installation
+
+- [x] Adapter [scripts/install/configure.py](scripts/install/configure.py) : questionnaire centré sur les profils, connexion réutilisée pour une interface partagée, durées et destinations indépendantes.
+- [x] Valider et générer les profils et leurs paramètres clients ; rejeter l’ancien format sans conversion.
+- [x] Afficher les propositions nftables sur stdout et proposer leur inclusion commentée dans le script, sans application par l’installeur ou exécution des commentaires par le script. Ne pas modifier le pare-feu ni les permissions du compte distant.
+- [x] Vérifier la liste de modules et templates de [scripts/install/build-package.sh](scripts/install/build-package.sh) : elle inclut déjà les dépendances de cette évolution ; aucun ajout au script de packaging nécessaire.
+- [x] Actualiser [scripts/install/PACKAGE-README.md](scripts/install/PACKAGE-README.md), [INSTALL.md](INSTALL.md), le README généré et la documentation de déploiement.
+- [x] Vérifier checksum, extraction, imports isolés, validation des trois profils et rendu des artefacts depuis l’archive autonome ; vérifier que le workflow de release utilise le même constructeur. Aucune publication GitHub effectuée.
+
+### 4.6 Image Podman : API, persistance, scheduler et navigateur
+
+- [x] Implémenter les profils déclarant leur interface dans `BackendConfig`, les cibles et l’import initial ; fournir les trois profils sur `wg0` dans [src/config/backend_config.yml](src/config/backend_config.yml).
+- [x] Persister endpoint, clé publique serveur et plages dans `ProfilePolicy`, ainsi que les allocations dans `PeerAllocation` ; aucune migration, conversion ou suppression automatique des données existantes.
+- [x] Allouer transactionnellement les adresses persistantes par appareil/interface et contrôler les doublons par utilisateur/appareil/profil ; autoriser les destinations communes. Sérialiser aussi la validation des paramètres techniques partagés.
+- [x] Séparer `addresses` et `networks` dans le document immuable du bail, avec endpoint et clé publique serveur ; conserver le transport SSH et les contrôles d’autorisation existants.
+- [x] Adapter le scheduler aux pairs partagés, à la révocation partielle et au retrait après le dernier bail ; conserver compensation et réconciliation WireGuard, sans opération nftables.
+- [x] Documenter les limites du filtrage externe, des expirations partielles et des fichiers clients téléchargés, qui restent des instantanés sans rafraîchissement automatique.
+- [x] Exposer `GET /api/v1/users/me/leases/<id>/configuration`, réservé au propriétaire d’un bail actif et provisionné, avec `Cache-Control: no-store`, paramètres publics et destinations des baux actifs du pair.
+- [x] Ajouter le téléchargement navigateur avec lecture locale d’une clé ou configuration existante, vérification X25519 avec WebCrypto et assemblage local ; aucune clé privée transmise au serveur.
+- [x] Construire et exécuter l’image non-root sans capacités réseau supplémentaires. Ajouter les sources de l’installeur uniquement dans la cible Docker de test pour ses tests de rendu.
+- [x] Actualiser architecture, sécurité, déploiement et exploitation en français et anglais.
+
+### 4.7 Tests existants à adapter et couverture à prévoir
+
+Les suites existantes et leurs fixtures ont été réutilisées. Les résultats exécutés sont consignés en 4.8 ; les essais externes non réalisés restent explicitement décochés.
+
+- [x] Configuration et API : adapter les fixtures et vérifier chargement, profils partagés, politiques distinctes, incohérence des paramètres d’interface, ancien format refusé, propriété et états des baux.
+- [x] Réservations : remplacer le refus des destinations communes par l’allocation d’adresses distinctes, vérifier la concurrence, les doublons par profil, la stabilité, IPv6 seul, double pile et épuisement des plages.
+- [x] CLI : vérifier les CIDR rejetés avant appel au driver, l’export privé sans fuite ni écrasement et les opérations WireGuard répétables ; exécuter les tests contre la wheel installée.
+- [ ] Intégration réseau réelle : adapter [tests/test_scheduler/test_wireguard_integration.py](tests/test_scheduler/test_wireguard_integration.py) et les environnements Compose pour connecter plusieurs pairs simultanés sur `wg0`, pas uniquement lire les `AllowedIPs` avec `wg show`.
+- [ ] Sécurité réseau : vérifier les adresses sources autorisées par WireGuard et l’absence d’opération nftables à la création, expiration, suppression ou réconciliation d’un bail. Les tests de restrictions de destinations nécessitent un pare-feu externe configuré par l’environnement, sans attribuer cette garantie à TTL-LAMa.
+- [x] Cycle de vie : vérifier application, expiration, révocation, retrait d’affectation, modification de politique, concurrence avec révocation, erreurs SSH, conservation du pair partagé et retrait après le dernier bail ; les anciens tests de compensation restent passants.
+- [ ] Réconciliation : vérifier les redémarrages de l’application et de l’hôte VPN, la restauration des pairs manquants et le retrait des pairs expirés ou inconnus dans le périmètre géré ; aucune lecture ni écriture du pare-feu.
+- [x] Configuration cliente : tester les paramètres, les refus entre utilisateurs, les états non utilisables et le cache ; vérifier dans le navigateur une clé incorrecte refusée, un Blob correctement assemblé, un lien de téléchargement et un GET sans corps contenant la clé ; contrôler le rendu mobile.
+- [x] Installation : vérifier stdout, inclusion commentée ou refus, absence d’exécution de commandes au rendu et fonctionnement depuis l’archive extraite. Le questionnaire des profils réutilise les connexions par interface.
+- [x] Packages livrés : construire archive autonome, wheel/source CLI et image locale ; tester les parcours contre le serveur et le CLI distant de cette révision.
+- [x] Adapter [cli/compose.test.yml](cli/compose.test.yml) pour construire l’image du dépôt ; conserver les capacités `NET_ADMIN` limitées aux conteneurs réseau de test. Aucun changement de pare-feu ne nécessite une adaptation des autres lanceurs ou de la CI.
+- [x] Consigner les commandes, résultats et limites en 4.8 ; aucune transition historique n’est ajoutée aux critères.
+
+### 4.8 Résultats de l’implémentation du 16 novembre 2026
+
+- Serveur dans l’image de test : **230 passed, 2 skipped**, avec le test d’intégration Dex exclu car ce fournisseur n’était pas lancé. Les scénarios de bases externes et de recréation réelle avec volume n’ont pas été relancés pour cette évolution.
+- CLI issu de la wheel installée hors des sources : **139 passed**. Version de développement du paquet : `0.1.0`, sans publication ni commit.
+- Intégration Compose avec serveur reconstruit, backend SSH et vrai WireGuard : **18 passed**, dont profils simultanés sur un appareil, configuration agrégée, révocation partielle et driver double pile.
+- Archive d’installation construite avec l’étiquette locale `profiles-final` : checksum valide, imports provenant exclusivement de l’archive extraite, validation des trois profils et rendu du script commenté réussis.
+- Navigateur : connexion, refus d’une mauvaise clé, validation X25519 d’une clé correcte, Blob contenant l’adresse et les destinations attendues, lien proposant `wireguard-1.conf`, GET de paramètres sans corps, champ local effacé et absence de débordement à 375 px. L’événement Playwright `download` n’est pas remonté par le navigateur intégré ; le Blob et le clic du lien ont été contrôlés, pas l’enregistrement sur disque par ce navigateur.
+- Aucun diagnostic sur les fichiers Python modifiés contrôlés ; syntaxe JavaScript et exemples YAML validés. Aucune référence nftables/iptables dans les sources runtime du serveur ou du CLI.
+
+Principales commandes exécutées, depuis la racine du dépôt :
+
+```sh
+podman build --target test -f src/Dockerfile -t localhost/ttl-lama:profiles-test .
+podman run --rm -e TTL_LAMA_CONFIG_FILE=/dev/null --entrypoint python \
+  localhost/ttl-lama:profiles-test -m pytest -q -p no:cacheprovider \
+  --ignore=tests/test_auth/test_oidc_integration.py --tb=short
+CLI_DIST=$(mktemp -d /tmp/ttlama-cli-final-XXXXXX)
+.venv/bin/python -m build --wheel --sdist --outdir "$CLI_DIST" cli
+.venv/bin/python -m pip install --no-deps --target "$CLI_DIST/installed" "$CLI_DIST/"*.whl
+PYTHONPATH="$CLI_DIST/installed" .venv/bin/python -m pytest cli/tests --ignore=cli/tests/integration -q
+INSTALLER_DIST=$(mktemp -d /tmp/ttlama-installer-final-XXXXXX)
+scripts/install/build-package.sh profiles-final "$INSTALLER_DIST"
+podman compose -p ttl-lama-profiles-final -f cli/compose.test.yml up \
+  --build --abort-on-container-exit --exit-code-from cli-tests
+```
+
+Pour rejouer Compose, utiliser des conteneurs neufs ou l’option `--force-recreate` : le script SSH de ce banc ne doit pas être relancé dans un ancien conteneur contenant sa clé temporaire. Les tests racine et CLI doivent être exécutés séparément, leurs paquets `tests` entrant en conflit dans une invocation pytest commune. Pour tester les sources CLI, utiliser `PYTHONPATH=cli/src` ; sinon l’environnement local peut importer une ancienne distribution installée.
+
+Les cases encore ouvertes en 4.7 concernent les essais de trafic et de redémarrage sur une infrastructure réseau réelle, notamment les refus de destinations sous pare-feu externe. Ils ne sont pas remplacés par des assertions sur `wg show`, et TTL-LAMa ne doit jamais être étendu à la gestion dynamique de nftables pour les satisfaire.

@@ -28,6 +28,8 @@ Chaque profil ne doit fournir que les accès nécessaires à son usage. Par exem
 
 Un accès VPN ne signifie pas nécessairement l’accès à l’ensemble du réseau privé.
 
+Le filtrage des destinations relève de l’administrateur du routeur. TTL-LAMa gère uniquement les baux et les pairs WireGuard ; aucune opération runtime ne lit ni ne modifie nftables. L’installeur affiche des propositions et peut les inclure sous forme de commentaires dans le script de préparation, sans les appliquer. Les `AllowedIPs` du client sont modifiables : ce sont des paramètres de routage, pas une liste de contrôle d’accès imposée côté serveur.
+
 ## Socle applicatif
 
 En production, la configuration doit fournir une clé Flask d’au moins 32 caractères et activer les cookies `Secure`. L’authentification est obligatoire : elle utilise soit les comptes internes, soit un fournisseur d’identité externe. Les cookies de session sont `HttpOnly` et `SameSite=Lax`; les requêtes modifiant l’état sont protégées contre les attaques CSRF.
@@ -38,13 +40,13 @@ Le conteneur s’exécute sans privilèges root. Le changement de mode ou d’é
 
 ## Révocation automatique
 
-L’expiration est un invariant du modèle de sécurité. Un bail expiré ne doit pas simplement apparaître comme `EXPIRED` dans l’application ; il doit entraîner :
+L’expiration change l’état du bail et libère sa réservation du pair WireGuard. Plusieurs profils peuvent avoir des baux simultanés pour un appareil/interface. Le pair est supprimé après la fin du dernier bail actif :
 
 ```text
-ACCESS = ABSENT
+FIN DU DERNIER BAIL ACTIF -> SUPPRESSION DU PAIR WIREGUARD
 ```
 
-Il en va de même pour un bail révoqué explicitement. La réconciliation doit rétablir cet invariant même si TTL-LAMa était indisponible au moment de l’expiration.
+Il en va de même pour une révocation explicite. La réconciliation rétablit l’état désiré des pairs au redémarrage. Une expiration partielle ne retire pas de destination au pare-feu externe lorsqu’un autre bail conserve le pair. Une politique externe adaptée reste nécessaire ; TTL-LAMa ne garantit ni la révocation des destinations par profil ni le contrôle du suivi de connexion. Les configurations clientes téléchargées sont des instantanés et n’expirent pas automatiquement.
 
 ## Traçabilité
 

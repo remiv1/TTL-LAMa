@@ -124,12 +124,13 @@ class LeaseScheduler:
                 end = lease.ended_at
                 if end.tzinfo is not None:
                     end = end.astimezone(timezone.utc).replace(tzinfo=None)
-                active = lease.revoked_at is None and end > now
+                active = (lease.revoked_at is None and end > now
+                          and record.state not in ("deleted", "pending_delete", "deleting"))
                 lease_states[lease.id] = (active, lease.ended_at)
                 if active:
                     key = (interface, identity)
-                    if key in desired:
-                        raise RuntimeError("Duplicate active WireGuard peer in database")
+                    if key in desired and set(desired[key][1]) != set(addresses):
+                        raise RuntimeError("Inconsistent addresses for a shared WireGuard peer")
                     desired[key] = (document, addresses)
             session.rollback()
             return lease_states, desired
@@ -241,7 +242,7 @@ class LeaseScheduler:
         try:
             if applying:
                 self.backend.grant(document)
-            else:
+            elif not self._peer_is_required(session, lease_id, json.loads(document)):
                 self.backend.revoke(document)
         except (OSError, RuntimeError, ValueError, subprocess.SubprocessError) as error:
             if isinstance(error, subprocess.CalledProcessError):
@@ -261,6 +262,24 @@ class LeaseScheduler:
             self._complete_apply(session, lease_id)
         else:
             self._complete_delete(session, lease_id)
+
+    @staticmethod
+    def _peer_is_required(session: Session, lease_id: int, document: dict[str, object]) -> bool:
+        rows = session.scalars(select(LeaseProvisioning).join(
+            Lease, Lease.id == LeaseProvisioning.lease_id
+        ).where(
+            Lease.id != lease_id,
+            Lease.revoked_at.is_(None),
+            Lease.ended_at > utcnow(),
+            LeaseProvisioning.state.in_(("pending_apply", "applying", "applied")),
+        )).all()
+        required = any(
+            record.document.get("interface") == document.get("interface")
+            and record.document.get("public_key") == document.get("public_key")
+            for record in rows
+        )
+        session.rollback()
+        return required
 
     @staticmethod
     def _log_subprocess_failure(
@@ -408,7 +427,7 @@ class LeaseScheduler:
             LOGGER,
             logging.INFO,
             "lease.provisioning.delete",
-            "succeeded access_removed lease_id=%s",
+            "succeeded lease_released lease_id=%s",
             lease_id,
         )
 

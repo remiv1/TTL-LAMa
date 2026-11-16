@@ -150,6 +150,19 @@ def create_lease() -> tuple[Response, int]:
     return wait_for_lease(lease.id, operation="apply")
 
 
+@user_api.get("/leases/<int:lease_id>/configuration")
+def get_client_configuration(lease_id: int) -> Response:
+    """Return public WireGuard parameters without receiving a private key.
+
+    :param lease_id: The identifier of an owned, active lease.
+    :returns: Parameters for locally assembling the client configuration.
+    :rtype: flask.Response
+    """
+    repository = LeaseRepository(get_session())
+    lease = repository.get_owned(lease_id, str(get_authenticated_user().id))
+    return jsonify(repository.client_configuration(lease))
+
+
 @user_api.post("/leases/<int:lease_id>/revoke")
 def revoke_lease(lease_id: int) -> tuple[Response, int]:
     """Revoke an owned lease without deleting its history."""

@@ -17,6 +17,7 @@ from api.common.db_objects.leases import Lease
 from api.common.db_objects.profiles import Profile as ProfileRecord
 from api.common.db_objects.profiles import ProfileUser as ProfileAssignment
 from api.common.db_objects.profile_policy import ProfilePolicy
+from api.common.db_objects.lease_provisioning import ProvisioningLock
 from api.common.db_objects.users import User
 from api.config.c_profiles import AccessProfile, AccessProfiles
 from .base import ConflictError, Repository
@@ -80,6 +81,9 @@ class ProfileRepository(Repository[ProfileRecord]):
             "maximum_duration": stored.maximum_duration,
             "lease_target": stored.lease_target,
             "networks": stored.networks,
+            "address_pools": stored.address_pools,
+            "endpoint": stored.endpoint,
+            "public_key": stored.public_key,
         })
 
     def set_policy(self, profile: ProfileRecord, policy: AccessProfile) -> None:
@@ -90,9 +94,24 @@ class ProfileRepository(Repository[ProfileRecord]):
         :param policy: The new access policy to set.
         :type policy: AccessProfile
         """
-        stored = self.session.get(ProfilePolicy, profile.id)
+        self.session.execute(update(ProvisioningLock).where(ProvisioningLock.id == 1).values(
+            version=ProvisioningLock.version + 1
+        ))
+        stored = self.session.get(ProfilePolicy, profile.id, populate_existing=True)
         if self.policy(profile) == policy:
             return
+        for other in self.session.scalars(select(ProfilePolicy).join(
+            ProfileRecord, ProfileRecord.id == ProfilePolicy.profile_id
+        ).where(
+            ProfilePolicy.lease_target == policy.lease_target,
+            ProfilePolicy.profile_id != profile.id,
+            ProfileRecord.revoked_at.is_(None),
+        )):
+            if (other.endpoint != policy.endpoint or other.public_key != policy.public_key
+                    or set(other.address_pools) != {str(pool) for pool in policy.address_pools}):
+                raise ConflictError(
+                    "Profiles sharing an interface must use the same connection settings"
+                )
         if stored is None:
             stored = ProfilePolicy(profile_id=profile.id)
             self.session.add(stored)
@@ -100,6 +119,9 @@ class ProfileRepository(Repository[ProfileRecord]):
         stored.maximum_duration = policy.maximum_duration
         stored.lease_target = policy.lease_target
         stored.networks = [str(network) for network in policy.networks]
+        stored.address_pools = [str(pool) for pool in policy.address_pools]
+        stored.endpoint = policy.endpoint
+        stored.public_key = policy.public_key
         self.revoke_leases(profile)
 
     def ensure_name(self, name: str, identifier: int | None = None) -> None:

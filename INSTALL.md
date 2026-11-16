@@ -2,6 +2,13 @@
 
 > L’installeur est implémenté dans `scripts/install/`. Il génère un bundle de configuration et affiche les commandes Podman sans les exécuter.
 
+## Shared WireGuard profiles and external firewall
+
+Each WireGuard profile now declares its `interface`, destination `networks`, durations, server `public_key`, public `endpoint` and client `address_pools`. Several profiles may share an interface; its connection settings must match. Choose client pools appropriate to the deployment: the first usable address is reserved for the router and client allocations remain stable per device/interface. The previous interface-based YAML and database schema are not migrated or converted.
+The installer prints nftables integration proposals on stdout and offers to include the same rules as comments in the generated host preparation script. It never applies the rules or runs the script. No nftables permission is needed by the remote TTL-LAMa account. The router administrator reviews and maintains the external firewall, routing and any required NAT.
+
+TTL-LAMa manages only leases and WireGuard peers. There are no runtime nftables operations at lease creation, expiration, revocation or reconciliation. Client `AllowedIPs` are routing parameters, not server-enforced destination controls. For several profiles on one device/interface, the peer remains until the last lease ends; partial expiration does not revoke a destination at the firewall.
+
 ## Parcours de configuration
 
 ```text

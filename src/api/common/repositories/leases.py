@@ -13,7 +13,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from ipaddress import ip_network
+from ipaddress import ip_interface, ip_network
 from typing import cast
 
 from sqlalchemy import select, update
@@ -27,6 +27,7 @@ from api.common.db_objects import (
     ProfileUser,
     Profile,
     LeaseProvisioning,
+    PeerAllocation,
     ProvisioningLock,
     User,
 )
@@ -79,34 +80,37 @@ class LeaseRepository(Repository[UserLease]):
     def __init__(self, session: Session) -> None:
         super().__init__(session, UserLease)
 
-    def _ensure_available(self, interface: str, public_key: str, networks: list[str]) -> None:
-        reservations = self.session.scalars(
-            select(LeaseProvisioning)
-            .where(LeaseProvisioning.state != "deleted")
-            .with_for_update()
-        ).all()
-        for reservation in reservations:
-            document = reservation.document
-            if document.get("interface") != interface:
-                continue
-            if document.get("public_key") == public_key:
-                raise ConflictError("The device already has a reserved lease on this interface")
-            if self._networks_overlap(document.get("addresses"), networks):
-                raise ConflictError("The profile networks overlap an existing lease")
-
-    @staticmethod
-    def _networks_overlap(addresses: object, networks: list[str]) -> bool:
-        if not isinstance(addresses, list):
-            raise RuntimeError("Invalid stored VPN reservation")
-        requested_networks = [ip_network(network) for network in networks]
-        for value in cast(list[object], addresses):
-            if not isinstance(value, str):
-                raise RuntimeError("Invalid stored VPN reservation")
-            existing = ip_network(value)
-            if any(network.version == existing.version and network.overlaps(existing)
-                   for network in requested_networks):
-                return True
-        return False
+    def _allocate_addresses(self, device_id: int, policy: ProfilePolicy) -> list[str]:
+        pools = [ip_network(value) for value in policy.address_pools]
+        allocation = self.session.get(PeerAllocation, (device_id, policy.lease_target))
+        if allocation is not None:
+            if not all(any(ip_interface(address).ip in pool for pool in pools)
+                       for address in allocation.addresses):
+                raise ConflictError("The device allocation is outside the configured address pools")
+            if {ip_interface(address).version for address in allocation.addresses} != {
+                pool.version for pool in pools
+            }:
+                raise ConflictError(
+                    "The device allocation does not match the configured IP families"
+                )
+            return list(allocation.addresses)
+        allocated = self.session.scalars(select(PeerAllocation).where(
+            PeerAllocation.interface == policy.lease_target
+        )).all()
+        used = {ip_interface(address).ip for record in allocated for address in record.addresses}
+        addresses: list[str] = []
+        for pool in pools:
+            hosts = pool.hosts()
+            next(hosts, None)
+            address = next((host for host in hosts if host not in used), None)
+            if address is None:
+                raise ConflictError("The WireGuard client address pool is exhausted")
+            addresses.append(f"{address}/{address.max_prefixlen}")
+        self.session.add(PeerAllocation(
+            device_id=device_id, interface=policy.lease_target, addresses=addresses,
+        ))
+        self.session.flush()
+        return addresses
 
     def find(
         self,
@@ -236,7 +240,19 @@ class LeaseRepository(Repository[UserLease]):
         if requested > parse_duration(policy.maximum_duration):
             raise ConflictError("Requested duration exceeds the profile maximum")
 
-        self._ensure_available(policy.lease_target, device.public_key, policy.networks)
+        duplicate = self.session.scalar(select(UserLease.id).join(
+            ProfileUser, ProfileUser.id == UserLease.profile_user_id
+        ).join(LeaseProvisioning, LeaseProvisioning.lease_id == UserLease.id).where(
+            UserLease.user_id == user_id,
+            UserLease.device_id == device_id,
+            ProfileUser.profile_id == profile_id,
+            LeaseProvisioning.state != "deleted",
+        ))
+        if duplicate is not None:
+            raise ConflictError(
+                "The user and device already have a reserved lease for this profile"
+            )
+        addresses = self._allocate_addresses(device_id, policy)
 
         lease = self.add(UserLease(
             device_id=device_id,
@@ -251,12 +267,60 @@ class LeaseRepository(Repository[UserLease]):
                 "lease_id": str(lease.id),
                 "device_id": str(device.id),
                 "public_key": device.public_key,
-                "addresses": list(policy.networks),
+                "addresses": addresses,
+                "networks": list(policy.networks),
+                "endpoint": policy.endpoint,
+                "server_public_key": policy.public_key,
             },
             state="pending_apply",
         ))
         self.session.flush()
         return lease
+
+    def client_configuration(self, lease: UserLease) -> dict[str, object]:
+        """Return public client parameters for a usable lease and its shared peer.
+
+        :param lease: An owned lease whose provisioning has completed.
+        :returns: Parameters and a template requiring a locally supplied private key.
+        :rtype: dict[str, object]
+        :raises ConflictError: If the requested lease is not active.
+        """
+        if lease_status(lease) != "active":
+            raise ConflictError("Client configuration requires an active provisioned lease")
+        record = self.session.get(LeaseProvisioning, lease.id)
+        if record is None:
+            raise ConflictError("The lease has no WireGuard configuration")
+        document = record.document
+        records = self.session.scalars(select(LeaseProvisioning).join(
+            UserLease, UserLease.id == LeaseProvisioning.lease_id
+        ).where(
+            UserLease.device_id == lease.device_id,
+            UserLease.user_id == lease.user_id,
+            UserLease.revoked_at.is_(None), UserLease.ended_at > utcnow(),
+            LeaseProvisioning.state == "applied",
+        )).all()
+        shared = [item for item in records
+                  if item.document.get("interface") == document["interface"]
+                  and item.document.get("public_key") == document["public_key"]]
+        networks = sorted({str(network) for item in shared
+                           for network in cast(list[str], item.document["networks"])})
+        addresses = cast(list[str], document["addresses"])
+        template = (
+            "[Interface]\nPrivateKey = REPLACE_WITH_LOCAL_PRIVATE_KEY\n"
+            f"Address = {', '.join(addresses)}\n\n[Peer]\n"
+            f"PublicKey = {document['server_public_key']}\n"
+            f"Endpoint = {document['endpoint']}\n"
+            f"AllowedIPs = {', '.join(networks)}\n"
+        )
+        return {
+            "lease_id": lease.id, "interface": document["interface"],
+            "device_public_key": document["public_key"],
+            "server_public_key": document["server_public_key"],
+            "endpoint": document["endpoint"], "addresses": addresses,
+            "allowed_ips": networks, "active_lease_ids": sorted(item.lease_id for item in shared),
+            "expires_at": lease.ended_at.isoformat() + "Z",
+            "configuration_template": template,
+        }
 
     def revoke(self, lease: UserLease) -> UserLease:
         """Revoke idempotently, preserving the first revocation time.

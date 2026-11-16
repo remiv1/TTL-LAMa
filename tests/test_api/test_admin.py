@@ -39,6 +39,9 @@ POLICY = {
     "default_duration": "1h",
     "maximum_duration": "8h",
     "lease_target": "wg0",
+    "address_pools": ["10.250.0.0/24"],
+    "endpoint": "vpn.example.test:51820",
+    "public_key": "server-key",
     "networks": ["10.0.0.0/24"],
 }
 
@@ -724,9 +727,11 @@ def test_profiles_are_loaded_from_backend_file_on_application_startup(
     backend_config_file.write_text(
         "backend:\n"
         "  wireguard:\n"
-        "    interfaces:\n"
-        "      - name: wg-startup\n"
-        f"        description: {profile_name}\n"
+        "    profiles:\n"
+        f"      - name: {profile_name}\n"
+        "        interface: wg-startup\n"
+        "        endpoint: vpn.example.test:51820\n"
+        "        address_pools: [10.250.0.0/24]\n"
         "        networks:\n"
         "          - 192.0.2.0/24\n"
         "        public_key: startup-test-key\n"
@@ -758,6 +763,31 @@ def test_profiles_are_loaded_from_backend_file_on_application_startup(
         assert [str(network) for network in policy.networks] == ["192.0.2.0/24"]
     finally:
         application.extensions["database_config"].close()
+
+
+def test_shared_interface_profiles_have_independent_policies() -> None:
+    """Share an interface without merging profile destinations or durations."""
+    from api.config.c_profiles import BackendConfig # pylint: disable=C0415
+
+    connection = {
+        "interface": "wg0", "public_key": "server-key",
+        "endpoint": "vpn.example.test:51820", "address_pools": ["10.250.0.0/24"],
+    }
+    document = {"backend": {"wireguard": {"profiles": [
+        dict(connection, name="admin", default_duration="1h", maximum_duration="2h",
+             networks=["10.10.0.0/24", "10.20.0.0/24"]),
+        dict(connection, name="files", default_duration="2h", maximum_duration="8h",
+             networks=["10.20.0.0/24"]),
+    ]}}}
+    configured = BackendConfig.model_validate(document)
+    assert configured.lease_targets == {"wg0"}
+    assert configured.access_profiles.profiles["files"].default_duration == "2h"
+    assert len(configured.access_profiles.profiles["admin"].networks) == 2
+    document["backend"]["wireguard"]["profiles"][1]["endpoint"] = "other.example.test:51820"
+    with pytest.raises(ValueError, match="same connection settings"):
+        BackendConfig.model_validate(document)
+    with pytest.raises(ValueError):
+        BackendConfig.model_validate({"backend": {"wireguard": {"interfaces": []}}})
 
 
 def test_revoking_one_assignment_keeps_other_users_access(domain: Domain) -> None:

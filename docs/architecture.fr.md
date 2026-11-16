@@ -68,9 +68,11 @@ Un profil d’accès est une politique définie par l’administrateur. Les util
 ```yaml
 backend:
   wireguard:
-    interfaces:
-      - name: wg0
-        description: Administration serveur
+    profiles:
+      - name: Administration serveur
+        interface: wg0
+        endpoint: vpn.example.com:51820
+        address_pools: [10.250.0.0/24]
         networks:
           - 192.168.10.0/24
         default_duration: 2h
@@ -78,7 +80,11 @@ backend:
         public_key: your_public_key_here
 ```
 
-Ce document correspond au fichier `/etc/ttl-lama/backend_config.yml`. La description de l’interface devient le nom du profil et le nom de l’interface est enregistré comme `lease_target`.
+Ce document correspond au fichier `/etc/ttl-lama/backend_config.yml`. Chaque profil déclare son interface, enregistrée comme `lease_target` dans l’API. Les profils partageant une interface doivent utiliser le même endpoint, la même clé publique serveur et les mêmes plages clientes. Leurs destinations et durées restent indépendantes. L’ancien format `interfaces` est refusé ; aucune migration ou conversion automatique n’est fournie.
+
+Une adresse cliente est allouée de façon persistante par appareil/interface, indépendamment des destinations du profil. La première adresse utilisable de chaque plage est réservée au routeur ; les suivantes sont attribuées aux clients en `/32` ou `/128`. Une plage par famille IP est prise en charge. Ces adresses figurent dans les `AllowedIPs` des pairs côté serveur ; les destinations du profil figurent dans les `AllowedIPs` côté client, pas dans des règles de pare-feu pilotées par TTL-LAMa.
+
+TTL-LAMa gère uniquement les baux et les pairs WireGuard. nftables relève de la configuration externe du routeur : l’installeur affiche des propositions d’intégration et peut les inclure sous forme de commentaires dans le script de préparation, sans les appliquer. Aucune opération de bail ne lit ni ne modifie nftables. Le fichier client ne garantit pas les restrictions de destinations ; l’administrateur doit prévoir une politique externe adaptée, notamment pour les appareils utilisant plusieurs profils simultanés.
 
 ### Bail d’accès
 
@@ -88,7 +94,9 @@ Un bail représente une autorisation temporaire accordée à une identité et à
 Identité + Appareil + Profil d’accès + Durée -> Bail
 ```
 
-L’expiration fait partie de l’état désiré : lorsque `ended_at <= now`, le bail est expiré et l’accès provisionné doit être absent, y compris après un redémarrage de TTL-LAMa.
+L’expiration fait partie de l’état désiré : lorsque `ended_at <= now`, le bail est expiré. Un appareil peut avoir un bail réservé par profil et plusieurs profils simultanés sur une interface. Le pair WireGuard partagé est conservé jusqu’à la fin du dernier bail, y compris après un redémarrage de TTL-LAMa. Une expiration partielle ne retire pas de destination dans le pare-feu externe.
+
+`GET /api/v1/users/me/leases/<id>/configuration` renvoie les paramètres publics et un modèle de configuration pour un bail personnel actif et provisionné, avec `Cache-Control: no-store`. Le modèle client contient l’union des destinations des baux actifs du pair. La clé privée est fournie et vérifiée localement dans le navigateur ou le CLI, jamais envoyée à l’API. Un fichier téléchargé est un instantané : WireGuard ne le rafraîchit pas et ne le fait pas expirer automatiquement.
 
 ### Modèle métier persisté
 
@@ -99,7 +107,8 @@ Les objets suivants correspondent aux tables SQLAlchemy actuelles. Les suppressi
 | Identité (`users`) | UUID, nom d’utilisateur, courriel facultatif, `enabled`, `is_admin`, `created_at`, `last_login` | Un nom d’utilisateur et un courriel renseigné sont uniques. Une identité possède plusieurs appareils, baux, affectations de profils, credentials et sessions. |
 | Appareil (`devices`) | ID entier, `user_id`, nom, clé publique, `created_at`, `revoked_at` | Appartient à une identité; une identité peut avoir plusieurs appareils. La clé publique est unique entre les enregistrements d’appareil. La révocation conserve l’appareil et révoque ses baux. |
 | Profil (`profiles`) | ID entier, nom, `created_at`, `revoked_at` | Le nom est unique. Une affectation (`profile_users`) relie une identité à un profil et conserve ses dates de création/révocation. |
-| Politique (`profile_policies`) | ID du profil, durée par défaut et maximale, cible backend, réseaux | Une politique au plus par profil; les réseaux sont stockés sous forme de liste JSON validée. |
+| Politique (`profile_policies`) | ID du profil, durées, cible backend, destinations, plages clientes, endpoint, clé publique serveur | Une politique au plus par profil ; paramètres cohérents pour une interface partagée. |
+| Allocation (`peer_allocations`) | ID appareil, interface, adresses clientes | Allocation persistante par appareil/interface, sérialisée avec les réservations. |
 | Bail (`leases`) | ID entier, `user_id`, `device_id`, `profile_user_id`, `created_at`, `ended_at`, `revoked_at` | Référence l’identité, l’appareil et l’affectation de profil. Plusieurs baux historiques peuvent être conservés. Le statut API est calculé, non persisté : révoqué si `revoked_at` est renseigné, sinon expiré si `ended_at` est atteint, sinon en attente/échoué selon le provisioning, sinon actif. |
 | Provisionnement (`lease_provisioning`) | ID du bail, document backend JSON, état, code d’erreur | Un document immuable conserve le snapshot nécessaire au backend, dont la clé publique. Les états persistés comprennent `pending_apply`, `applied`, `pending_delete`, `deleted` et `uncertain`; `applying` et `deleting` sont des claims transitoires persistés pendant les appels backend. `uncertain` est un état récupérable retraité par le scheduler, pas un état terminal. |
 

@@ -6,7 +6,9 @@ This document describes the implemented lease lifecycle and the known operationa
 
 Before starting APScheduler, the scheduler process reconciles WireGuard state against persisted leases. It reapplies missing or divergent active peers, removes peers without an active lease, and restores expiration jobs. WireGuard operations are sent over SSH with `sudo -n ttlama backend wg leases`. Reconciliation runs at startup, not periodically; pending operations and failed removals continue to be handled by the scheduler poll.
 
-Profile networks become the peer's `AllowedIPs`. On the same interface, reservations cannot share a public key or overlapping networks. A reservation remains occupied until deletion is confirmed. After an application with an uncertain result, it remains reserved even if a subsequent deletion succeeds: a delayed remote command may still change the peer.
+Client host addresses become the server peer's `AllowedIPs`; profile networks become client-side routing destinations. Devices can share destinations and profiles can share an interface. Allocations are persistent per device/interface; the first usable address of each pool is reserved for the router. A device can have one reserved lease per profile and multiple simultaneous profiles. Its peer remains until the last lease ends. After uncertain application, the lease reservation remains occupied even if compensation succeeds, because a delayed remote command could still change the peer.
+
+TTL-LAMa never reads or modifies nftables during provisioning or reconciliation. The installer prints optional external firewall integration proposals, which can be included as comments in the host script without applying them. The router administrator owns filtering, return routes and any NAT. Partial expiration on a shared peer does not revoke a destination at that external firewall.
 
 The file `/etc/ttl-lama/ssh_config.yml` configures the connection, private key and `known_hosts` file. Timeouts in seconds are configurable with `TTL_LAMA_SSH_COMMAND_TIMEOUT` (default 30), `TTL_LAMA_PROVISIONING_WAIT_SECONDS` (45) and `TTL_LAMA_SCHEDULER_POLL_INTERVAL` (1). The API wait should normally exceed the SSH timeout and polling interval.
 
@@ -42,7 +44,7 @@ pending_apply -> applying -> applied -> deleting -> deleted
 
 ### Expiration and Revocation
 
-After application is confirmed, APScheduler schedules a job at `ended_at`. When it fires, the scheduler reloads the lease and requests deletion if it is revoked or expired. Explicit revocation sets `revoked_at` and also requests deletion; the API status becomes `revoked` before the backend operation completes. In both cases, the invariant is that access for a revoked or expired lease must not remain provisioned.
+After application is confirmed, APScheduler schedules a job at `ended_at`. When it fires, the scheduler reloads the lease and requests its release if it is revoked or expired. Explicit revocation sets `revoked_at`; the API status becomes `revoked` before backend confirmation. A shared peer is preserved while another lease requires it, and removed after the last lease ends. No external firewall rule is changed.
 
 ### Key Ownership
 

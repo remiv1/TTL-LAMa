@@ -180,6 +180,8 @@ def test_authenticated_profiles_page_shows_assigned_profiles_and_policy(
             maximum_duration="4h",
             lease_target="wg0",
             networks=[IPv4Network("10.20.0.0/16")],
+            address_pools=[IPv4Network("10.250.0.0/24")],
+            endpoint="vpn.example.test:51820", public_key="server-key",
         ),
     )
     unassigned_profile = repository.create(
@@ -189,6 +191,8 @@ def test_authenticated_profiles_page_shows_assigned_profiles_and_policy(
             maximum_duration="2h",
             lease_target="wg0",
             networks=[IPv4Network("192.168.10.0/24")],
+            address_pools=[IPv4Network("10.250.0.0/24")],
+            endpoint="vpn.example.test:51820", public_key="server-key",
         ),
     )
     repository.assign(user, assigned_profile)
@@ -254,6 +258,8 @@ def test_authenticated_leases_page_groups_statuses_and_limits_creation_options(
             maximum_duration="4h",
             lease_target="wg0",
             networks=[IPv4Network("10.30.0.0/16")],
+            address_pools=[IPv4Network("10.250.0.0/24")],
+            endpoint="vpn.example.test:51820", public_key="server-key",
         ),
     )
     unassigned_profile = profile_repository.create(
@@ -263,6 +269,8 @@ def test_authenticated_leases_page_groups_statuses_and_limits_creation_options(
             maximum_duration="2h",
             lease_target="wg0",
             networks=[IPv4Network("192.168.30.0/24")],
+            address_pools=[IPv4Network("10.250.0.0/24")],
+            endpoint="vpn.example.test:51820", public_key="server-key",
         ),
     )
     assignment = profile_repository.assign(user, assigned_profile)
@@ -347,6 +355,8 @@ def test_lease_page_displays_pending_provisioning(app: Flask) -> None:
     profile = profiles.create("pending-lease-page-profile", AccessProfile(
         default_duration="1h", maximum_duration="2h", lease_target="wg-pending",
         networks=[IPv4Network("10.126.0.0/24")],
+        address_pools=[IPv4Network("10.250.0.0/24")],
+        endpoint="vpn.example.test:51820", public_key="server-key",
     ))
     profiles.assign(user, profile)
     LeaseRepository(session).create(
@@ -379,6 +389,8 @@ def test_authenticated_lease_creation_and_revocation_use_csrf_protected_api(
             maximum_duration="4h",
             lease_target="wg0",
             networks=[IPv4Network("10.40.0.0/16")],
+            address_pools=[IPv4Network("10.250.0.0/24")],
+            endpoint="vpn.example.test:51820", public_key="server-key",
         ),
     )
     profile_repository.assign(user, profile)

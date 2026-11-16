@@ -1,25 +1,27 @@
 backend:
   wireguard:
-    interfaces:
-      - name: wg0
-        description: Main WireGuard interface
-        networks:
-          - 10.0.0.1/24
-        public_key: your_public_key_here
-        default_duration: 8h
-        maximum_duration: 24h
-      - name: wg1
-        description: Administrative WireGuard interface
-        networks:
-          - 10.100.0.1/24
-          - 10.200.0.1/24
-        public_key: your_public_key_here
+    profiles:
+      - name: Administrator
+        interface: wg0
+        endpoint: vpn.example.com:51820
+        public_key: REPLACE_WITH_WIREGUARD_PUBLIC_KEY
+        address_pools: [10.250.0.0/24]
         default_duration: 1h
+        maximum_duration: 2h
+        networks: [10.100.0.0/24, 10.10.0.0/24, 10.20.0.0/24]
+      - name: Files
+        interface: wg0
+        endpoint: vpn.example.com:51820
+        public_key: REPLACE_WITH_WIREGUARD_PUBLIC_KEY
+        address_pools: [10.250.0.0/24]
+        default_duration: 2h
         maximum_duration: 8h
-      - name: wg2
-        description: Maintenance WireGuard interface
-        networks:
-          - 10.200.0.1/24
-        public_key: your_public_key_here
-        default_duration: 30m
-        maximum_duration: 90m
+        networks: [10.20.0.0/24]
+      - name: Charlemagne
+        interface: wg0
+        endpoint: vpn.example.com:51820
+        public_key: REPLACE_WITH_WIREGUARD_PUBLIC_KEY
+        address_pools: [10.250.0.0/24]
+        default_duration: 1h
+        maximum_duration: 4h
+        networks: [10.10.0.0/24]

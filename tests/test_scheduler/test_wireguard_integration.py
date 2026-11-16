@@ -143,6 +143,8 @@ def test_scheduler_reconciles_real_wireguard_backend(
             maximum_duration="2h",
             lease_target="ttlama-test0",
             networks=[test_network],
+            address_pools=[test_network],
+            endpoint="vpn.example.test:51820", public_key="server-key",
         ),
     )
     profile_repository.assign(user, profile)
@@ -163,7 +165,8 @@ def test_scheduler_reconciles_real_wireguard_backend(
 
     state = next(peer for peer in backend.list_leases() if peer["identity"] == public_key)
     assert state["interface"] == "ttlama-test0"
-    assert state["addresses"] == [str(test_network)]
+    expected_addresses = [f"{test_network.network_address + 2}/32"]
+    assert state["addresses"] == expected_addresses
     assert scheduler.get_job(f"lease-expiry-{lease_id}") is not None
 
     provisioning = database.session().get(LeaseProvisioning, lease_id)
@@ -173,7 +176,7 @@ def test_scheduler_reconciles_real_wireguard_backend(
     backend.grant(json.dumps(divergent_document, separators=(",", ":")))
     worker.reconcile()
     state = next(peer for peer in backend.list_leases() if peer["identity"] == public_key)
-    assert state["addresses"] == [str(test_network)]
+    assert state["addresses"] == expected_addresses
 
     orphan_key = base64.b64encode(os.urandom(32)).decode("ascii")
     backend.grant(json.dumps({

@@ -193,6 +193,9 @@ class ProfilePatch(Input):
     maximum_duration: Duration | None = None
     lease_target: LeaseTarget | None = None
     networks: list[str] | None = Field(default=None, min_length=1)
+    address_pools: list[str] | None = Field(default=None, min_length=1)
+    endpoint: str | None = None
+    public_key: str | None = None
 
 
 class Filters(BaseModel):

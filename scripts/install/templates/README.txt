@@ -19,3 +19,11 @@ Before startup:
 Application data is stored in a Podman named volume mounted at /data. Podman adjusts the volume ownership for the container user on startup. The initial administrator password is in etc/ttl-lama/config.yml for bootstrap; remove it after the first persisted initialization.
 
 If OpenVPN was selected, its generated files are documentation only and do not provide a runnable backend.
+
+WireGuard profiles may share an interface. Their endpoint, server public key and client address pools must agree. Profile networks are client routing destinations, not client addresses. The first usable address of each pool is reserved for the router.
+
+Firewall integration proposals are printed on stdout and can optionally be included as comments in the host preparation script. Neither the installer nor normal execution of that script applies those comments. The router administrator is responsible for reviewing and integrating firewall policy. TTL-LAMa lease and peer operations never read or modify nftables.
+
+Client AllowedIPs do not enforce server destination restrictions. An existing shared peer remains while any of its profile leases is active; a partial expiration does not remove a destination at the external firewall. Downloaded client configurations are snapshots and do not update or expire themselves.
+
+The previous backend configuration and database schema are not migrated or converted. Existing data is never deleted automatically.

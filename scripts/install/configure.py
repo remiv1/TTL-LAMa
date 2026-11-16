@@ -267,38 +267,84 @@ def ask_profile_durations() -> tuple[str, str]:
         return default_duration, maximum_duration
 
 
-def ask_wireguard_interfaces() -> list[dict[str, Any]]:
-    """Ask the user for WireGuard interface configurations.
+def ask_wireguard_profiles() -> list[dict[str, Any]]:
+    """Ask for access profiles and their shared WireGuard connection settings.
 
     :return: A list of dictionaries containing interface configurations.
     :rtype: list[dict[str, Any]]
     """
     print_section(
-        "WireGuard interfaces",
-        "Each interface maps to a WireGuard device. Use its actual name and allowed "
-        "client networks.",
+        "WireGuard profiles",
+        "Profiles may share an interface. Destination networks are separate from client "
+        "address pools. The first usable address in each pool is reserved for the router.",
     )
-    count = ask_int("Number of WireGuard interfaces", 1, 1, 64)
-    interfaces: list[dict[str, Any]] = []
+    count = ask_int("Number of WireGuard profiles", 1, 1, 64)
+    profiles: list[dict[str, Any]] = []
+    connections: dict[str, dict[str, Any]] = {}
     for index in range(count):
-        print(f"WireGuard interface {index + 1}/{count}")
-        name = ask_text("Interface name", f"wg{index}")
-        description = ask_text("Profile description", name)
-        networks = ask_networks("Allowed client networks")
-        public_key = ask_text(
-            "WireGuard interface public key (replace the placeholder if unknown)",
-            WIREGUARD_PUBLIC_KEY_PLACEHOLDER,
-        )
+        print(f"WireGuard profile {index + 1}/{count}")
+        name = ask_text("Profile name", f"profile-{index + 1}")
+        interface = ask_text("Interface name", "wg0")
+        if interface not in connections:
+            connections[interface] = {
+                "public_key": ask_text(
+                    "WireGuard server public key",
+                    WIREGUARD_PUBLIC_KEY_PLACEHOLDER,
+                ),
+                "endpoint": ask_text("Public WireGuard endpoint (host:port)"),
+                "address_pools": ask_networks("Client address pools (one per IP family)"),
+            }
+        networks = ask_networks("Allowed destination networks")
         default_duration, maximum_duration = ask_profile_durations()
-        interfaces.append({
+        profiles.append({
             "name": name,
-            "description": description,
+            "interface": interface,
             "networks": networks,
-            "public_key": public_key,
+            **connections[interface],
             "default_duration": default_duration,
             "maximum_duration": maximum_duration,
         })
-    return interfaces
+    return profiles
+
+
+def nftables_recommendations(settings: dict[str, Any]) -> str:
+    """Render external firewall integration proposals without running nftables.
+
+    :param settings: The validated backend configuration document.
+    :returns: Rules for administrator review, without an automatic hook.
+    :rtype: str
+    """
+    configured = BackendConfig.model_validate(settings)
+    lines = [
+        "# EXTERNAL FIREWALL: review and integrate manually on the VPN router.",
+        "# TTL-LAMa never applies or updates nftables rules during lease operations.",
+        "# This unhooked chain is an integration proposal, NOT per-profile authorization.",
+        "# Add a jump at the appropriate place in your existing forwarding policy.",
+        "# Configure input policy, actual WireGuard UDP listen port, return routes and NAT separately.", # pylint: disable=C0301
+        "# Client AllowedIPs are routing hints; they do not enforce destination restrictions.",
+        "table inet ttl_lama_integration {",
+        "  chain forward_integration {",
+    ]
+    for interface in sorted(configured.lease_targets):
+        profiles = [profile for profile in configured.backend.wireguard.profiles
+                    if profile.lease_target == interface]
+        for pool in profiles[0].address_pools:
+            destinations = sorted(
+                {
+                    str(network)
+                    for profile in profiles
+                    for network in profile.networks
+                    if network.version == pool.version
+                }
+            )
+            if destinations:
+                family = "ip" if pool.version == 4 else "ip6"
+                lines.append(
+                    f'    iifname "{interface}" {family} saddr {pool} '
+                    f'{family} daddr {{ {", ".join(destinations)} }} accept'
+                )
+    lines.extend(["  }", "}"])
+    return "\n".join(lines)
 
 
 def ask_openvpn_profiles() -> tuple[str, list[dict[str, Any]]]:
@@ -500,7 +546,7 @@ def _collect_backend() -> tuple[str, dict[str, Any]]:
     )
     backend_type = ask_choice("VPN backend", ["wireguard", "openvpn"], "wireguard")
     if backend_type == "wireguard":
-        backend_settings = {"backend": {"wireguard": {"interfaces": ask_wireguard_interfaces()}}}
+        backend_settings = {"backend": {"wireguard": {"profiles": ask_wireguard_profiles()}}}
     else:
         server_config, profiles = ask_openvpn_profiles()
         backend_settings = {
@@ -613,6 +659,10 @@ def collect_answers() -> dict[str, Any]:
     application = _collect_application()
     security = _collect_security(application["environment"])
     backend_type, backend_settings = _collect_backend()
+    include_nftables = backend_type == "wireguard" and ask_bool(
+        "Include commented nftables integration proposals in the VPN host preparation script?",
+        False,
+    )
     ssh_settings = _collect_ssh(vpn_host)
     panic, panic_script_relative_path, panic_mail_settings, panic_mail_password = _collect_panic()
     return {
@@ -626,6 +676,7 @@ def collect_answers() -> dict[str, Any]:
         **security,
         "backend_type": backend_type,
         "backend_settings": backend_settings,
+        "include_nftables": include_nftables,
         "panic": panic,
         "panic_script_relative_path": panic_script_relative_path,
         "panic_mail_settings": panic_mail_settings,
@@ -889,6 +940,11 @@ def render_wireguard_artifacts(
     setup = setup.replace("@@AUTHORIZED_KEY_LINE@@", shlex.quote(public_key_line))
     setup = setup.replace("@@KNOWN_HOSTS_HOST@@", shlex.quote(answers["vpn_host"]))
     setup = setup.replace("@@SSH_PORT@@", shlex.quote(str(answers["ssh_port"])))
+    if answers.get("include_nftables", False):
+        setup += "\n" + "\n".join(
+            "# " + line
+            for line in nftables_recommendations(answers["backend_settings"]).splitlines()
+        ) + "\n"
     write_text(staging_dir / VPN_HOST_SETUP_FILE, setup, 0o755)
     write_text(staging_dir / "wireguard-ssh-key.pub", public_key + "\n")
 
@@ -1181,6 +1237,8 @@ def main() -> int:
         f"{output_dir / INSTALL_CONFIG_PATH / 'ssh_known_hosts'} before startup."
     )
     if answers["backend_type"] == "wireguard":
+        print("\nProposed nftables integration (not applied; router administrator responsibility):")
+        print(nftables_recommendations(answers["backend_settings"]))
         print(
             "  Review, then manually run "
             f"{output_dir / INSTALL_VPN_PATH / VPN_HOST_SETUP_FILE} on the VPN host."

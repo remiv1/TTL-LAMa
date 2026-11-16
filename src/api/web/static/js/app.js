@@ -243,7 +243,74 @@ document.addEventListener("DOMContentLoaded", () => {
     const confirmRevokeButton = workspace.querySelector("[data-confirm-revoke]");
     const announcer = document.querySelector("[data-page-announcer]");
     const profileSelect = createForm.elements.profile_id;
+    const downloadButton = workspace.querySelector("[data-download-configuration]");
+    const localKeyInput = workspace.querySelector("[data-local-private-key]");
+    const configurationStatus = workspace.querySelector("[data-configuration-status]");
     let selectedLeaseButton = null;
+    let exportLeaseId = null;
+
+    downloadButton.addEventListener("click", () => {
+      if (selectedLeaseButton?.dataset.status !== "active") return;
+      exportLeaseId = selectedLeaseButton.dataset.leaseId;
+      configurationStatus.textContent = "";
+      localKeyInput.click();
+    });
+
+    localKeyInput.addEventListener("change", async () => {
+      const file = localKeyInput.files[0];
+      if (!file || !exportLeaseId) return;
+      const leaseId = exportLeaseId;
+      downloadButton.disabled = true;
+      try {
+        const content = await file.text();
+        const keyLine = content.split("\n").find((line) => {
+          const separator = line.indexOf("=");
+          return separator !== -1 && line.slice(0, separator).trim() === "PrivateKey";
+        });
+        const privateKey = keyLine ? keyLine.slice(keyLine.indexOf("=") + 1).trim() : content.trim();
+        const privateBytes = Uint8Array.from(atob(privateKey), (character) => character.codePointAt(0) ?? 0);
+        if (privateBytes.length !== 32) throw new Error("Invalid local key");
+        const response = await fetch(
+          `${workspace.dataset.createEndpoint}/${encodeURIComponent(leaseId)}/configuration`,
+          { credentials: "same-origin", cache: "no-store" },
+        );
+        if (!response.ok) throw new Error("Configuration unavailable");
+        const parameters = await response.json();
+        const toBase64Url = (value) => value.replaceAll("+", "-").replaceAll("/", "_").replaceAll("=", "");
+        const key = await crypto.subtle.importKey("jwk", {
+          kty: "OKP", crv: "X25519", d: toBase64Url(privateKey),
+          x: toBase64Url(parameters.device_public_key), ext: false, key_ops: ["deriveBits"],
+        }, { name: "X25519" }, false, ["deriveBits"]);
+        const basepoint = new Uint8Array(32);
+        basepoint[0] = 9;
+        const publicBasepoint = await crypto.subtle.importKey(
+          "raw", basepoint, { name: "X25519" }, false, [],
+        );
+        const derived = await crypto.subtle.deriveBits({ name: "X25519", public: publicBasepoint }, key, 256);
+        const publicKey = btoa(String.fromCodePoint(...new Uint8Array(derived)));
+        if (publicKey !== parameters.device_public_key) throw new Error("Device key mismatch");
+        const template = parameters.configuration_template;
+        if (typeof template !== "string" || template.split("REPLACE_WITH_LOCAL_PRIVATE_KEY").length !== 2) {
+          throw new Error("Invalid configuration template");
+        }
+        const blob = new Blob([template.replace("REPLACE_WITH_LOCAL_PRIVATE_KEY", privateKey)],
+          { type: "text/plain;charset=utf-8" });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement("a");
+        link.href = url;
+        link.download = `wireguard-${leaseId}.conf`;
+        document.body.append(link);
+        link.click();
+        link.remove();
+        setTimeout(() => URL.revokeObjectURL(url), 1000);
+      } catch {
+        configurationStatus.textContent = workspace.dataset.configurationError;
+      } finally {
+        localKeyInput.value = "";
+        exportLeaseId = null;
+        downloadButton.disabled = false;
+      }
+    });
 
     const announce = (message) => {
       if (announcer) announcer.textContent = message;
@@ -298,6 +365,8 @@ document.addEventListener("DOMContentLoaded", () => {
       revoked.dateTime = button.dataset.revokedAt;
       revoked.textContent = formatDate(button.dataset.revokedAt);
       detail.querySelector("[data-open-revoke-dialog]").hidden = button.dataset.status !== "active";
+      downloadButton.hidden = button.dataset.status !== "active";
+      configurationStatus.textContent = "";
     };
 
     const makeLeaseItem = (lease, device, profile) => {

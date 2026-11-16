@@ -107,6 +107,7 @@
     data-default-label="{{ text.lease_default }}"
     data-maximum-label="{{ text.lease_maximum }}"
     data-networks-label="{{ text.lease_networks }}"
+    data-configuration-error="{{ text.configuration_error }}"
     aria-labelledby="page-title">
     <section class="lease-inventory" aria-label="{{ text.leases }}">
         <header class="device-inventory-heading">
@@ -218,6 +219,14 @@
                 <dd><time data-lease-detail-revoked>{% if selected and selected["lease"].revoked_at %}{{ selected["lease"].revoked_at.isoformat() }}{% endif %}</time></dd>
             </div>
         </dl>
+        <button class="text-action" type="button" data-download-configuration
+            title="{{ text.download_wireguard }}"
+            {% if not selected or selected["status"] != 'active' %}hidden{% endif %}>
+            {{ text.download_wireguard }}
+        </button>
+        <input type="file" accept=".key,.conf,.txt" data-local-private-key hidden
+            aria-label="{{ text.local_private_key }}">
+        <output class="form-status" data-configuration-status aria-live="polite"></output>
         <button class="danger-action" type="button" data-open-revoke-dialog
             {% if not selected or selected["status"] != 'active' %}hidden{% endif %}>
             {{ text.revoke_lease }}

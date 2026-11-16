@@ -54,6 +54,7 @@ COPY tests/requirements-test.txt /opt/ttl-lama/requirements-test.txt
 RUN pip install --no-cache-dir -r /opt/ttl-lama/requirements-test.txt
 COPY pytest.ini /opt/ttl-lama/pytest.ini
 COPY tests/ /opt/ttl-lama/tests/
+COPY scripts/install/ /opt/ttl-lama/scripts/install/
 USER ttl-lama
 CMD ["python", "-m", "pytest", "-q", "-p", "no:cacheprovider"]
 

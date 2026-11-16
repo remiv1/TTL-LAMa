@@ -375,6 +375,8 @@ def test_current_user_overview_only_returns_owned_resources(app: Flask) -> None:
             maximum_duration="8h",
             lease_target="wg0",
             networks=[IPv4Network(address="10.0.0.0/24")],
+            address_pools=[IPv4Network("10.250.0.0/24")],
+            endpoint="vpn.example.test:51820", public_key="server-key",
         ),
     )
     other_profile = profile_repository.create(
@@ -384,6 +386,8 @@ def test_current_user_overview_only_returns_owned_resources(app: Flask) -> None:
             maximum_duration="8h",
             lease_target="wg0",
             networks=[IPv4Network(address="192.168.0.0/24")],
+            address_pools=[IPv4Network("10.250.0.0/24")],
+            endpoint="vpn.example.test:51820", public_key="server-key",
         ),
     )
     assignment = profile_repository.assign(user, profile)
@@ -442,6 +446,8 @@ def test_current_user_overview_only_returns_owned_resources(app: Flask) -> None:
         "maximum_duration": "8h",
         "lease_target": "wg0",
         "networks": ["10.0.0.0/24"],
+        "address_pools": ["10.250.0.0/24"],
+        "endpoint": "vpn.example.test:51820", "public_key": "server-key",
     }
 
 

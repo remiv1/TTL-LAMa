@@ -2,8 +2,11 @@
 from __future__ import annotations
 
 import logging
+import runpy
 from pathlib import Path
+from types import SimpleNamespace
 from typing import cast
+from unittest.mock import Mock
 
 import pytest
 import yaml
@@ -13,6 +16,57 @@ from pydantic import ValidationError
 from werkzeug.test import TestResponse
 
 from api.config import FlaskSettings
+
+
+@pytest.mark.parametrize("include", [False, True])
+def test_installer_proposes_external_firewall_without_executing_it(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, include: bool,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Generate recommendations and optional commented rules without running commands."""
+    installer = runpy.run_path(
+        str(Path(__file__).resolve().parents[2] / "scripts/install/configure.py")
+    )
+    settings = {"backend": {"wireguard": {"profiles": [{
+        "name": "files", "interface": "wg0", "default_duration": "1h", "maximum_duration": "2h",
+        "networks": ["10.20.0.0/24"], "address_pools": ["10.250.0.0/24"],
+        "endpoint": "vpn.example.test:51820", "public_key": "server-key",
+    }]}}}
+
+    def forbidden(*args: object, **kwargs: object) -> None:
+        raise AssertionError("Installer rendering must not execute a command")
+
+    monkeypatch.setattr(installer["subprocess"], "run", forbidden)
+    proposed = installer["nftables_recommendations"](settings)
+    assert 'iifname "wg0" ip saddr 10.250.0.0/24 ip daddr { 10.20.0.0/24 } accept' in proposed
+    assert "NOT per-profile authorization" in proposed
+    installer["render_wireguard_artifacts"](tmp_path, {
+        "cli_path": "/opt/ttlama/bin/ttlama", "ssh_user": "ttlama", "vpn_host": "vpn.example.test",
+        "ssh_port": 22, "include_nftables": include, "backend_settings": settings,
+    }, "ssh-ed25519 public-test-key")
+    script = (tmp_path / "vpn-host-setup.sh").read_text(encoding="utf-8")
+    assert ("# table inet ttl_lama_integration" in script) is include
+    assert "nft -" not in script
+    namespace = installer["main"].__globals__
+    answers = {
+        "backend_type": "wireguard", "backend_settings": settings,
+        "insecure_production_confirmed": False, "published_port": 8080,
+    }
+    monkeypatch.setitem(namespace, "parse_arguments", lambda: SimpleNamespace(
+        output_dir=tmp_path / "bundle", image="ttlama:test", container_name="ttlama-test",
+    ))
+    monkeypatch.setitem(namespace, "collect_answers", lambda: answers)
+    monkeypatch.setitem(
+        namespace, "application_configuration",
+        Mock(return_value={"server": {"port": 8080}}),
+    )
+    monkeypatch.setitem(namespace, "validate_application", Mock(return_value=None))
+    monkeypatch.setitem(namespace, "validate_ssh", Mock(return_value=None))
+    monkeypatch.setitem(namespace, "output_files", Mock(return_value=tmp_path / "bundle"))
+    assert installer["main"]() == 0
+    stdout = capsys.readouterr().out
+    assert proposed in stdout
+    assert "router administrator responsibility" in stdout
 
 
 def _valid_configuration() -> dict[str, object]:

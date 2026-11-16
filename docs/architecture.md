@@ -68,9 +68,11 @@ An access profile is a policy defined by the administrator. Users select from au
 ```yaml
 backend:
   wireguard:
-    interfaces:
-      - name: wg0
-        description: Server administration
+    profiles:
+      - name: Server administration
+        interface: wg0
+        endpoint: vpn.example.com:51820
+        address_pools: [10.250.0.0/24]
         networks:
           - 192.168.10.0/24
         default_duration: 2h
@@ -78,7 +80,11 @@ backend:
         public_key: your_public_key_here
 ```
 
-This document belongs in `/etc/ttl-lama/backend_config.yml`. The interface description becomes the profile name, and the interface name is stored as its `lease_target`.
+This document belongs in `/etc/ttl-lama/backend_config.yml`. Each profile declares its interface, stored as `lease_target` in the API. Profiles sharing an interface must agree on endpoint, server public key and client address pools. Their destinations and durations remain independent. The former `interfaces` format is rejected; this change provides no migration or automatic conversion.
+
+Client addresses are allocated persistently per device/interface, separately from profile destinations. The first usable address of each pool is reserved for the router; subsequent addresses are allocated to clients as `/32` or `/128`. One pool per IP family is supported. Server-side peer `AllowedIPs` contain these client addresses. Profile destinations become client-side `AllowedIPs`, not server firewall rules.
+
+TTL-LAMa manages leases and WireGuard peers only. nftables is external router configuration: the installer prints integration proposals and can include them as comments in the host preparation script, without applying them. Runtime lease operations never inspect or modify nftables. Client configuration does not enforce destination restrictions; administrators must provide an appropriate external policy, especially for devices with simultaneous profiles.
 
 ### Access Lease
 
@@ -88,7 +94,9 @@ A lease is temporary authorization granted to an identity and a device according
 Identity + Device + Access Profile + Duration -> Lease
 ```
 
-Expiration is part of the desired state: when `ended_at <= now`, the lease is expired and provisioned access must be absent, including after a TTL-LAMa restart.
+Expiration is part of the desired state: when `ended_at <= now`, the lease is expired. A device may have one reserved lease per profile and multiple simultaneous profiles on an interface. The shared WireGuard peer remains until the last lease ends, including after a TTL-LAMa restart. Partial expiration does not revoke a destination at the external firewall.
+
+`GET /api/v1/users/me/leases/<id>/configuration` returns public parameters and a configuration template for an owned, active, provisioned lease with `Cache-Control: no-store`. The client template includes the union of destinations of active leases on that peer. The private key is supplied and verified locally in the browser or CLI, never sent to the API. A downloaded file is a snapshot, not an automatically refreshed or expiring WireGuard configuration.
 
 ### Persisted Domain Model
 
@@ -99,7 +107,8 @@ The following objects correspond to the current SQLAlchemy tables. Identity, dev
 | Identity (`users`) | UUID, username, optional email, `enabled`, `is_admin`, `created_at`, `last_login` | Username and a supplied email are unique. An identity has multiple devices, leases, profile assignments, credentials, and sessions. |
 | Device (`devices`) | Integer ID, `user_id`, name, public key, `created_at`, `revoked_at` | Owned by one identity; an identity can have multiple devices. The public key is unique across device records. Revocation retains the device and revokes its leases. |
 | Profile (`profiles`) | Integer ID, name, `created_at`, `revoked_at` | Name is unique. An assignment (`profile_users`) links an identity to a profile and retains its creation/revocation timestamps. |
-| Policy (`profile_policies`) | Profile ID, default and maximum duration, backend target, networks | At most one policy per profile; networks are stored as a validated JSON list. |
+| Policy (`profile_policies`) | Profile ID, durations, backend target, destination networks, address pools, endpoint, server public key | At most one policy per profile; shared interface settings must agree. |
+| Peer allocation (`peer_allocations`) | Device ID, interface, client host addresses | Persistent allocation per device/interface, serialized with provisioning reservations. |
 | Lease (`leases`) | Integer ID, `user_id`, `device_id`, `profile_user_id`, `created_at`, `ended_at`, `revoked_at` | References the identity, device, and profile assignment. Multiple historical leases may be retained. API status is computed, not persisted: revoked when `revoked_at` is set, otherwise expired when `ended_at` is reached, otherwise pending/failed according to provisioning, otherwise active. |
 | Provisioning (`lease_provisioning`) | Lease ID, backend JSON document, state, error code | One immutable document stores the backend snapshot, including the public key. Persisted states include `pending_apply`, `applied`, `pending_delete`, `deleted`, and `uncertain`; `applying` and `deleting` are transient claims persisted during backend calls. `uncertain` is a recoverable state retried by the scheduler, not a terminal state. |
 

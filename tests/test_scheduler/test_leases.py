@@ -4,7 +4,7 @@ from __future__ import annotations
 import json
 from concurrent.futures import ThreadPoolExecutor
 from datetime import timedelta
-from ipaddress import IPv4Network
+from ipaddress import IPv4Network, IPv6Network
 from pathlib import Path
 from threading import Barrier
 from unittest.mock import Mock
@@ -13,10 +13,10 @@ from uuid import uuid4
 import pytest
 from apscheduler.schedulers.background import BackgroundScheduler
 from flask import Flask
-from sqlalchemy import update
+from sqlalchemy import select, update
 from sqlalchemy.orm import Session
 
-from api.common.db_objects.lease_provisioning import LeaseProvisioning
+from api.common.db_objects.lease_provisioning import LeaseProvisioning, PeerAllocation
 from api.common.db_objects.leases import Lease
 from api.common.repositories import (
     DeviceRepository,
@@ -39,8 +39,8 @@ def database_settings(tmp_path: Path) -> DatabaseSettings:
     return DatabaseSettings(DB_PATH=str(tmp_path / "scheduler.db"))
 
 
-@pytest.fixture
-def lease_setup(app: Flask) -> tuple[LeaseScheduler, Mock, int]:
+@pytest.fixture(name="lease_setup")
+def lease_context(app: Flask) -> tuple[LeaseScheduler, Mock, int]:
     """Create an authorized lease and a scheduler with a simulated backend."""
     database = app.extensions["database_config"]
     session = database.session()
@@ -51,6 +51,8 @@ def lease_setup(app: Flask) -> tuple[LeaseScheduler, Mock, int]:
         f"scheduler-{suffix}",
         AccessProfile(
             default_duration="1h", maximum_duration="2h", lease_target=f"wg-{suffix}",
+            endpoint="vpn.example.test:51820", public_key="server-key",
+            address_pools=[IPv4Network("10.250.0.0/24")],
             networks=[IPv4Network("10.123.0.0/24")],
         ),
     )
@@ -77,7 +79,8 @@ def test_apply_schedules_expiration_and_expiry_removes_peer(
     worker.poll()
     document = json.loads(backend.grant.call_args.args[0])
     assert document["lease_id"] == str(lease_id)
-    assert document["addresses"] == ["10.123.0.0/24"]
+    assert document["addresses"] == ["10.250.0.2/32"]
+    assert document["networks"] == ["10.123.0.0/24"]
     expiration = worker.scheduler.get_job(f"lease-expiry-{lease_id}")
     assert expiration is not None
     assert expiration.misfire_grace_time is None
@@ -209,20 +212,156 @@ def test_failed_apply_requests_compensation(
     backend.revoke.assert_called_once()
 
 
-def test_overlapping_active_lease_is_rejected(
+def test_shared_destinations_allocate_distinct_client_addresses(
     app: Flask,
     lease_setup: tuple[LeaseScheduler, Mock, int], # pylint: disable=W0621
 ) -> None:
-    """The same interface and overlapping profile cannot reserve a second peer."""
+    """Two devices can use the same destinations without sharing client addresses."""
     _, _, lease_id = lease_setup
     session = app.extensions["database_config"].session()
     lease = session.get(Lease, lease_id)
     other_device = DeviceRepository(session).create(str(lease.user_id), "second", "another-key")
-    with pytest.raises(ConflictError):
+    second = LeaseRepository(session).create(
+        user_id=str(lease.user_id), device_id=other_device.id, profile_id=lease.profile.id,
+    )
+    first_document = session.get(LeaseProvisioning, lease_id).document
+    second_document = session.get(LeaseProvisioning, second.id).document
+    assert first_document["networks"] == second_document["networks"]
+    assert first_document["addresses"] != second_document["addresses"]
+    session.rollback()
+
+
+def test_shared_peer_survives_until_the_last_profile_lease_ends(
+    app: Flask,
+    lease_setup: tuple[LeaseScheduler, Mock, int],  # pylint: disable=W0621
+) -> None:
+    """Partial revocation preserves the peer without running a firewall operation."""
+    worker, backend, lease_id = lease_setup
+    database = app.extensions["database_config"]
+    session = database.session()
+    first = session.get(Lease, lease_id)
+    profiles = ProfileRepository(session)
+    policy = profiles.policy(first.profile)
+    assert policy is not None
+    second_profile = profiles.create("second-profile", policy.model_copy(update={
+        "networks": [IPv4Network("10.20.0.0/24")],
+    }))
+    profiles.assign(first.user, second_profile)
+    second = LeaseRepository(session).create(
+        user_id=str(first.user_id), device_id=first.device_id, profile_id=second_profile.id,
+    )
+    second_id = second.id
+    assert session.get(LeaseProvisioning, lease_id).document["addresses"] == session.get(
+        LeaseProvisioning, second_id
+    ).document["addresses"]
+    with pytest.raises(ConflictError, match="reserved lease"):
         LeaseRepository(session).create(
-            user_id=str(lease.user_id), device_id=other_device.id, profile_id=lease.profile.id,
+            user_id=str(first.user_id), device_id=first.device_id, profile_id=first.profile.id,
+        )
+    session.commit()
+    worker.poll()
+    backend.list_leases.return_value = []
+    worker.reconcile()
+    session = database.session()
+    first = session.get(Lease, lease_id)
+    token = app.extensions["auth_manager"].session_service.create(str(first.user_id))
+    headers = {"Authorization": f"Bearer {token}"}
+    configuration_url = f"/api/v1/users/me/leases/{lease_id}/configuration"
+    response = app.test_client().get(configuration_url, headers=headers)
+    assert response.status_code == 200
+    assert response.headers["Cache-Control"] == "no-store"
+    payload = response.get_json()
+    assert isinstance(payload, dict)
+    assert payload["allowed_ips"] == ["10.123.0.0/24", "10.20.0.0/24"]
+    assert payload["active_lease_ids"] == [lease_id, second_id]
+    assert "REPLACE_WITH_LOCAL_PRIVATE_KEY" in payload["configuration_template"]
+    assert app.test_client().get(configuration_url).status_code == 401
+    session = database.session()
+    LeaseRepository(session).revoke(session.get(Lease, lease_id))
+    session.commit()
+    worker.poll()
+    backend.revoke.assert_not_called()
+    assert app.test_client().get(configuration_url, headers=headers).status_code == 409
+    session = database.session()
+    assert session.get(LeaseProvisioning, second_id).state == "applied"
+    LeaseRepository(session).revoke(session.get(Lease, second_id))
+    session.commit()
+    worker.poll()
+    backend.revoke.assert_called_once()
+    assert {call[0] for call in backend.method_calls} <= {"grant", "revoke", "list_leases"}
+
+
+@pytest.mark.parametrize("dual_stack", [False, True])
+def test_persistent_ipv6_allocation_and_pool_exhaustion(
+    app: Flask, lease_setup: tuple[LeaseScheduler, Mock, int], dual_stack: bool, # pylint: disable=W0621
+) -> None:
+    """Reserve the router address and keep unique host addresses in each IP family."""
+    _, _, lease_id = lease_setup
+    database = app.extensions["database_config"]
+    session = database.session()
+    initial = session.get(Lease, lease_id)
+    profiles = ProfileRepository(session)
+    policy = profiles.policy(initial.profile)
+    assert policy is not None
+    pools: list[IPv4Network | IPv6Network] = [IPv6Network("fd42:250::/126")]
+    if dual_stack:
+        pools.insert(0, IPv4Network("10.251.0.0/30"))
+    configured = policy.model_copy(update={
+        "lease_target": "wg-dual", "address_pools": pools,
+        "networks": [IPv4Network("10.20.0.0/24"), IPv6Network("fd42:20::/64")],
+    })
+    profile = profiles.create("dual-stack", configured)
+    profiles.assign(initial.user, profile)
+    lease = LeaseRepository(session).create(
+        user_id=str(initial.user_id), device_id=initial.device_id, profile_id=profile.id,
+    )
+    first_addresses = session.get(LeaseProvisioning, lease.id).document["addresses"]
+    assert first_addresses == (["10.251.0.2/32"] if dual_stack else []) + ["fd42:250::2/128"]
+    session.get(LeaseProvisioning, lease.id).state = "deleted"
+    lease.revoked_at = utcnow()
+    session.flush()
+    repeated = LeaseRepository(session).create(
+        user_id=str(initial.user_id), device_id=initial.device_id, profile_id=profile.id,
+    )
+    assert session.get(LeaseProvisioning, repeated.id).document["addresses"] == first_addresses
+    other = DeviceRepository(session).create(str(initial.user_id), "pool-device", "pool-key")
+    if not dual_stack:
+        LeaseRepository(session).create(
+            user_id=str(initial.user_id), device_id=other.id, profile_id=profile.id,
+        )
+        other = DeviceRepository(session).create(str(initial.user_id), "full-pool", "full-key")
+    with pytest.raises(ConflictError, match="exhausted"):
+        LeaseRepository(session).create(
+            user_id=str(initial.user_id), device_id=other.id, profile_id=profile.id,
         )
     session.rollback()
+
+
+def test_client_configuration_is_scoped_to_the_owner_and_provisioning(
+    app: Flask, lease_setup: tuple[LeaseScheduler, Mock, int], # pylint: disable=W0621
+) -> None:
+    """Reject another owner, pending provisioning and expired configurations."""
+    worker, _, lease_id = lease_setup
+    database = app.extensions["database_config"]
+    session = database.session()
+    lease = session.get(Lease, lease_id)
+    owner_id = str(lease.user_id)
+    other = UserRepository(session).create(username="configuration-other-owner")
+    other_id = str(other.id)
+    session.commit()
+    manager = app.extensions["auth_manager"]
+    owner_headers = {"Authorization": f"Bearer {manager.session_service.create(owner_id)}"}
+    other_headers = {"Authorization": f"Bearer {manager.session_service.create(other_id)}"}
+    url = f"/api/v1/users/me/leases/{lease_id}/configuration"
+    client = app.test_client()
+    assert client.get(url, headers=other_headers).status_code == 404
+    assert client.get(url, headers=owner_headers).status_code == 409
+    worker.poll()
+    assert client.get(url, headers=owner_headers).status_code == 200
+    session = database.session()
+    session.get(Lease, lease_id).ended_at = utcnow() - timedelta(seconds=1)
+    session.commit()
+    assert client.get(url, headers=owner_headers).status_code == 409
 
 
 def test_revocation_during_apply_is_not_overwritten(
@@ -359,7 +498,7 @@ def test_concurrent_reservations_cannot_overlap(
     app: Flask,
     lease_setup: tuple[LeaseScheduler, Mock, int],  # pylint: disable=W0621
 ) -> None:
-    """Concurrent creations serialize their network reservations."""
+    """Concurrent devices receive distinct allocations for identical destinations."""
     _, _, lease_id = lease_setup
     database = app.extensions["database_config"]
     session = database.session()
@@ -387,7 +526,14 @@ def test_concurrent_reservations_cannot_overlap(
 
     with ThreadPoolExecutor(max_workers=2) as executor:
         results = list(executor.map(create, [device_id, second_id]))
-    assert sorted(results) == [False, True]
+    assert results == [True, True]
+    database.session.remove()
+    session = database.session()
+    allocations = session.scalars(select(PeerAllocation).where(
+        PeerAllocation.device_id.in_((device_id, second_id))
+    )).all()
+    assert len(allocations) == 2
+    assert allocations[0].addresses != allocations[1].addresses
 
 
 def test_wireguard_cli_sends_document_on_ssh_stdin(monkeypatch: pytest.MonkeyPatch) -> None:

@@ -163,14 +163,16 @@ Settings are read at startup. Changing them does not alter passwords already sto
 
 Supported database engines are `sqlite`, `postgresql`, `mariadb`, and `mysql`. SQLite is the standalone default. An external database requires `database.host`, `database.name`, `database.user`, and `database.password_file`; `database.port` is optional and defaults to the engine's standard port ; `database.schema` is also required for some engines like postgresql. `TTL_LAMA_...` environment variables remain available as overrides; for example, `TTL_LAMA_AUTH_MODE` overrides `auth.mode`.
 
-Backend interfaces are validated separately in `/etc/ttl-lama/backend_config.yml` and seed profile policies on first startup:
+Backend profiles are validated separately in `/etc/ttl-lama/backend_config.yml` and seed profile policies on first startup:
 
 ```yaml
 backend:
   wireguard:
-    interfaces:
-      - name: wg0
-        description: User access
+    profiles:
+      - name: User access
+        interface: wg0
+        endpoint: vpn.example.com:51820
+        address_pools: [10.250.0.0/24]
         networks:
           - 10.0.0.0/8
         public_key: your_public_key_here
@@ -178,7 +180,9 @@ backend:
         maximum_duration: 24h
 ```
 
-The interface description becomes the profile name and its `name` becomes `lease_target`. Durations accept `d`, `h`, `m`, and `s` units. The default duration cannot exceed the maximum, and every interface must specify at least one network.
+The profile declares its name and `interface` (`lease_target` in the API). Several profiles may share it with different destinations and durations; their endpoint, server public key and address pools must match. Choose client pools appropriate to your topology: the sample pool is illustrative. The first usable address is reserved for the router. Durations accept `d`, `h`, `m`, and `s`; the default cannot exceed the maximum.
+
+The previous `interfaces` format and previous database schemas are not migrated or converted. Use a new compatible database; TTL-LAMa never deletes existing data automatically. The installer prints nftables integration proposals and offers to include them as comments in the host script. Only the router administrator reviews and applies firewall configuration. Neither the installer nor runtime lease/peer operations apply nftables rules. External filtering is required to enforce destination restrictions; client-side `AllowedIPs` alone are not authorization.
 
 ## Persistence Options
 

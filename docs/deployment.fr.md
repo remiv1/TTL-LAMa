@@ -163,14 +163,16 @@ Les paramètres sont lus au démarrage. Leur modification ne change pas les mots
 
 Les moteurs pris en charge sont `sqlite`, `postgresql`, `mariadb` et `mysql`. SQLite est le choix autonome par défaut. Une base externe nécessite `database.host`, `database.name`, `database.user` et `database.password_file`; `database.port` est facultatif et utilise le port standard du moteur; `database.schema` est également requis pour certains moteurs comme postgresql. Les variables d’environnement préfixées par `TTL_LAMA_` restent disponibles pour les surcharges ; par exemple, `TTL_LAMA_AUTH_MODE` remplace `auth.mode`.
 
-Les interfaces backend sont validées séparément dans `/etc/ttl-lama/backend_config.yml` et servent à initialiser les policies de profil au premier démarrage :
+Les profils backend sont validés séparément dans `/etc/ttl-lama/backend_config.yml` et servent à initialiser les politiques au premier démarrage :
 
 ```yaml
 backend:
   wireguard:
-    interfaces:
-      - name: wg0
-        description: Accès utilisateur
+    profiles:
+      - name: Accès utilisateur
+        interface: wg0
+        endpoint: vpn.example.com:51820
+        address_pools: [10.250.0.0/24]
         networks:
           - 10.0.0.0/8
         public_key: your_public_key_here
@@ -178,7 +180,9 @@ backend:
         maximum_duration: 24h
 ```
 
-La description de l’interface devient le nom du profil et son champ `name` devient `lease_target`. Les durées acceptent les unités `d`, `h`, `m` et `s`. La durée par défaut ne peut pas dépasser la durée maximale et chaque interface doit définir au moins un réseau.
+Le profil déclare son nom et son `interface` (`lease_target` dans l’API). Plusieurs profils peuvent la partager avec des destinations et durées différentes ; leur endpoint, clé publique serveur et plages clientes doivent correspondre. Choisissez des plages adaptées à votre topologie : celle de l’exemple est illustrative. La première adresse utilisable est réservée au routeur. Les durées acceptent `d`, `h`, `m` et `s` ; la durée par défaut ne peut pas dépasser le maximum.
+
+L’ancien format `interfaces` et les anciens schémas de base ne sont ni migrés ni convertis. Utilisez une nouvelle base compatible ; TTL-LAMa ne supprime jamais automatiquement les données existantes. L’installeur affiche des propositions nftables et propose leur inclusion commentée dans le script de l’hôte. L’administrateur du routeur est seul responsable de leur revue et application. Ni l’installeur ni les opérations de baux/pairs n’appliquent de règles nftables. Le filtrage externe doit garantir les restrictions de destination ; les `AllowedIPs` du client ne sont pas une autorisation.
 
 ## Options de persistance
 
