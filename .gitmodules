@@ -1,3 +1,6 @@
 [submodule "cli"]
 	path = cli
 	url = https://github.com/remiv1/TTL-LAMa-CLI.git
+[submodule "sdk"]
+	path = sdk
+	url = https://github.com/remiv1/TTL-LAMa-SDK.git
