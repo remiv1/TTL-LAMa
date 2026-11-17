@@ -2,6 +2,8 @@
 
 [English](../README.md) | Français
 
+[![Version](https://img.shields.io/badge/version-1.0.1-blue)](https://github.com/your-repo/TTL-LAMa)
+
 [![Python 3.14](https://img.shields.io/badge/Python-3.14-3776AB?logo=python&logoColor=white)](https://www.python.org/)
 
 [![Flask](https://img.shields.io/badge/Flask-Web_Framework-7D0000?logo=flask&logoColor=white)](https://flask.palletsprojects.com/)
