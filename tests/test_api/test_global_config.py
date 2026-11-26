@@ -15,7 +15,8 @@ from flask.testing import FlaskClient
 from pydantic import ValidationError
 from werkzeug.test import TestResponse
 
-from api.config import FlaskSettings
+from api.bootstrap import create_app
+from api.config import DatabaseSettings, FlaskSettings
 
 
 @pytest.mark.parametrize("include", [False, True])
@@ -92,6 +93,159 @@ def _valid_configuration() -> dict[str, object]:
 
 def _write_config(path: Path, configuration: dict[str, object]) -> None:
     path.write_text(yaml.safe_dump(configuration, sort_keys=False), encoding="utf-8")
+
+
+@pytest.mark.parametrize("secure", [False, True])
+def test_production_transport_sets_cookie_security(secure: bool) -> None:
+    """Production supports both transports with matching cookie security."""
+    configuration = _valid_configuration()
+    cast(dict[str, object], configuration["app"])["environment"] = "production"
+    configuration["security"] = {"enforce_secure_connection": secure}
+
+    settings = FlaskSettings.model_validate(configuration)
+
+    assert settings.SESSION_COOKIE_SECURE is secure
+    assert settings.SESSION_COOKIE_HTTPONLY
+
+
+@pytest.mark.parametrize("secure", [False, True])
+def test_production_login_uses_transport_cookie_settings(tmp_path: Path, secure: bool) -> None:
+    """A production login emits the expected cookie and transport headers."""
+    configuration = _valid_configuration()
+    cast(dict[str, object], configuration["app"])["environment"] = "production"
+    configuration["security"] = {"enforce_secure_connection": secure}
+    settings = FlaskSettings.model_validate(configuration)
+    application = create_app(settings, DatabaseSettings(DB_PATH=str(tmp_path / "test.db")))
+    try:
+        client = application.test_client()
+        base_url = "https://localhost" if secure else "http://localhost"
+        csrf_response = client.get("/api/v1/csrf", base_url=base_url)
+        token = cast(dict[str, str], csrf_response.get_json())["csrf_token"]
+        response = client.post(
+            "/auth/login",
+            base_url=base_url,
+            json={"username": "admin", "password": "valid-password"},
+            headers={"X-CSRFToken": token, "Referer": f"{base_url}/login"},
+        )
+
+        assert response.status_code == 200
+        cookie = client.get_cookie(settings.AUTH_COOKIE_NAME)
+        assert cookie is not None
+        assert cookie.secure is secure
+        assert cookie.http_only
+        assert ("Strict-Transport-Security" in response.headers) is secure
+    finally:
+        application.extensions["database_config"].close()
+
+
+def test_production_http_keeps_cookie_and_debug_restrictions() -> None:
+    """HTTP does not permit debug mode or insecure SameSite=None cookies."""
+    configuration = _valid_configuration()
+    app_config = cast(dict[str, object], configuration["app"])
+    app_config["environment"] = "production"
+    app_config["debug"] = True
+    with pytest.raises(ValidationError, match="DEBUG"):
+        FlaskSettings.model_validate(configuration)
+
+    app_config["debug"] = False
+    configuration["security"] = {
+        "enforce_secure_connection": False,
+        "session_cookie_samesite": "None",
+    }
+    with pytest.raises(ValidationError, match="SAMESITE"):
+        FlaskSettings.model_validate(configuration)
+
+    configuration["security"] = {
+        "enforce_secure_connection": False,
+        "session_cookie_secure": True,
+    }
+    with pytest.raises(ValidationError, match="SESSION_COOKIE_SECURE"):
+        FlaskSettings.model_validate(configuration)
+
+
+@pytest.mark.parametrize(
+    "secure,issuer,redirect,valid",
+    [
+        (False, "https://identity.example.test", "http://app.example.test/auth/callback", True),
+        (True, "https://identity.example.test", "https://app.example.test/auth/callback", True),
+        (False, "http://identity.example.test", "http://app.example.test/auth/callback", False),
+        (True, "https://identity.example.test", "http://app.example.test/auth/callback", False),
+    ],
+)
+def test_production_oidc_transport_validation(
+    secure: bool, issuer: str, redirect: str, valid: bool,
+) -> None:
+    """OIDC requires a secure issuer and a secure callback when HTTPS is enforced."""
+    configuration = _valid_configuration()
+    cast(dict[str, object], configuration["app"])["environment"] = "production"
+    configuration["security"] = {"enforce_secure_connection": secure}
+    configuration["auth"] = {
+        "mode": "external",
+        "oidc": {
+            "issuer": issuer,
+            "client_id": "client",
+            "client_secret": "secret",
+            "redirect_uri": redirect,
+        },
+    }
+    if valid:
+        FlaskSettings.model_validate(configuration)
+    else:
+        with pytest.raises(ValidationError):
+            FlaskSettings.model_validate(configuration)
+
+
+def test_installer_validates_actual_production_http_configuration() -> None:
+    """The installer accepts HTTP but does not hide invalid cookie settings."""
+    installer = runpy.run_path(
+        str(Path(__file__).resolve().parents[2] / "scripts/install/configure.py")
+    )
+    configuration = _valid_configuration()
+    cast(dict[str, object], configuration["app"])["environment"] = "production"
+    installer["validate_application"](configuration)
+
+    cast(dict[str, object], configuration["security"])["session_cookie_secure"] = True
+    with pytest.raises(ValueError, match="Invalid application configuration"):
+        installer["validate_application"](configuration)
+
+
+@pytest.mark.parametrize("confirmed", [False, True])
+def test_installer_confirms_production_http(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], confirmed: bool,
+) -> None:
+    """The installer warns and requires explicit confirmation for production HTTP."""
+    installer = runpy.run_path(
+        str(Path(__file__).resolve().parents[2] / "scripts/install/configure.py")
+    )
+    collect = installer["_collect_security"]
+    namespace = collect.__globals__
+    answers = iter([True, False, confirmed])
+
+    def fake_ask_bool(_prompt: str, _default: bool) -> bool:
+        return next(answers)
+
+    def fake_ask_int(_prompt: str, default: int, _minimum: int, _maximum: int) -> int:
+        return default
+
+    def fake_ask_choice(_prompt: str, _choices: list[str], default: str) -> str:
+        return default
+
+    def fake_input(_prompt: str) -> str:
+        return ""
+
+    monkeypatch.setitem(namespace, "ask_bool", fake_ask_bool)
+    monkeypatch.setitem(namespace, "ask_int", fake_ask_int)
+    monkeypatch.setitem(namespace, "ask_choice", fake_ask_choice)
+    monkeypatch.setattr("builtins.input", fake_input)
+
+    if confirmed:
+        result = collect("production")
+        assert result["insecure_production_confirmed"]
+        assert not result["enforce_secure"]
+    else:
+        with pytest.raises(ValueError, match="cancelled"):
+            collect("production")
+    assert "trusted, isolated network" in capsys.readouterr().out
 
 
 def test_login_lock_settings_load_from_nested_yaml() -> None:
@@ -418,10 +572,10 @@ def test_secret_file_errors_are_generic(
 
     with pytest.raises(ValidationError) as error:
         FlaskSettings(
-            FLASK_ENV="testing",
-            SECRET_KEY_FILE=secret_path,
-            ENFORCE_SECURE_CONNECTION=False,
-            SESSION_COOKIE_SECURE=False,
+            FLASK_ENV="testing",    # type: ignore
+            SECRET_KEY_FILE=secret_path,    # type: ignore
+            ENFORCE_SECURE_CONNECTION=False,    # type: ignore
+            SESSION_COOKIE_SECURE=False,    # type: ignore
         )  # type: ignore[call-arg]
 
     assert "Impossible de lire le fichier secret SECRET_KEY" in str(error.value)

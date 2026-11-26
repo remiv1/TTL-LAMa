@@ -63,7 +63,11 @@ Pour un compte interne encore accessible, l’utilisateur peut changer son propr
 
 Un secret Flask monté dans `secrets/flask_secret_key` est prioritaire. S’il est absent, l’entrée du conteneur génère une clé aléatoire dans `/data/flask_secret_key`, protégée par les permissions du propriétaire. Cette clé reste disponible grâce au volume `/data` après les redémarrages. Un fichier secret monté mais illisible fait échouer le démarrage. Le secret d’administration n’est pas requis pour le modèle de base ; les secrets ne doivent pas être écrits dans `.env`.
 
-En production, configurez explicitement l’environnement, désactivez le mode debug et activez HTTPS ainsi que les cookies `Secure`. Le seul réglage `FLASK_ENV=production` ne suffit pas : le démarrage est refusé si `DEBUG` reste activé. Par exemple, les variables de surcharge sont `TTL_LAMA_FLASK_ENV=production`, `TTL_LAMA_DEBUG=false`, `TTL_LAMA_ENFORCE_SECURE_CONNECTION=true` et `TTL_LAMA_SESSION_COOKIE_SECURE=true`. En production, un warning est journalisé tant que le compte administrateur utilise encore le mot de passe initial. L’API authentifiée `GET /auth/security-status` expose uniquement l’indicateur booléen `default_admin_password_in_use`.
+En production, configurez explicitement l’environnement et désactivez le mode debug : le démarrage est refusé si `DEBUG` reste activé. HTTPS et les cookies `Secure` sont recommandés : configurez un proxy TLS et définissez `TTL_LAMA_FLASK_ENV=production`, `TTL_LAMA_DEBUG=false`, `TTL_LAMA_ENFORCE_SECURE_CONNECTION=true` et `TTL_LAMA_SESSION_COOKIE_SECURE=true`. L’application ne termine pas TLS et ne redirige pas elle-même les requêtes HTTP vers HTTPS.
+
+HTTP reste possible en production sur un réseau de confiance isolé en définissant `security.enforce_secure_connection: false` et `security.session_cookie_secure: false`. Les cookies sont alors transmis sans l’attribut `Secure` et `SameSite=None` est interdit. L’isolation relève de l’opérateur : HTTP expose les identifiants et les sessions à toute personne pouvant observer le réseau. En OIDC, le fournisseur doit rester en HTTPS ; le fournisseur doit aussi autoriser l’URL de retour HTTP. Certaines fonctions du navigateur, notamment Web Crypto, nécessitent un contexte sécurisé et peuvent ne pas fonctionner en HTTP hors localhost.
+
+En production, un warning est journalisé tant que le compte administrateur utilise encore le mot de passe initial. L’API authentifiée `GET /auth/security-status` expose uniquement l’indicateur booléen `default_admin_password_in_use`.
 
 ### Erreurs de configuration et secrets
 
@@ -223,7 +227,7 @@ database:
   password_file: /run/secrets/database_password
 ```
 
-Le contenu des secrets montés est lu au démarrage. En production, la clé Flask doit contenir au moins 32 caractères et les cookies doivent être marqués `Secure`. L’authentification est toujours obligatoire. Adaptez les interfaces de `backend_config.yml` aux réseaux et durées de votre déploiement.
+Le contenu des secrets montés est lu au démarrage. La clé Flask doit contenir au moins 32 caractères et les cookies sont marqués `Secure` lorsque HTTPS est activé. L’authentification est toujours obligatoire. Adaptez les interfaces de `backend_config.yml` aux réseaux et durées de votre déploiement.
 
 ## Chemins dans le conteneur
 

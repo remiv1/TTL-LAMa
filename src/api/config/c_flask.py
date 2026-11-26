@@ -208,11 +208,6 @@ class Settings(YamlSettingsBase):
         """
         if not self.SESSION_COOKIE_HTTPONLY:
             raise ValueError("SESSION_COOKIE_HTTPONLY doit rester activé")
-        if (
-            self.SESSION_COOKIE_SAMESITE == "None"
-            and not self.SESSION_COOKIE_SECURE
-        ):
-            raise ValueError("SESSION_COOKIE_SAMESITE must be activated with SameSite=None")
         if self.SESSION_COOKIE_PATH != "/":
             raise ValueError("SESSION_COOKIE_PATH doit être /")
         if self.SESSION_COOKIE_SECURE != self.ENFORCE_SECURE_CONNECTION:
@@ -222,6 +217,11 @@ class Settings(YamlSettingsBase):
                     "ENFORCE_SECURE_CONNECTION"
                 )
             self.SESSION_COOKIE_SECURE = self.ENFORCE_SECURE_CONNECTION # type: ignore # pylint: disable=C0103
+        if (
+            self.SESSION_COOKIE_SAMESITE == "None"
+            and not self.SESSION_COOKIE_SECURE
+        ):
+            raise ValueError("SESSION_COOKIE_SAMESITE must be activated with SameSite=None")
 
     @model_validator(mode="after")
     def validate_authentication(self) -> Settings:
@@ -287,10 +287,6 @@ class Settings(YamlSettingsBase):
     def _validate_environment(self, is_production: bool) -> None:
         if is_production and self.DEBUG:
             raise ValueError("DEBUG doit être désactivé en production")
-        if is_production and not self.ENFORCE_SECURE_CONNECTION:
-            raise ValueError(
-                "ENFORCE_SECURE_CONNECTION doit être activé en production"
-            )
 
     def _validate_oidc_configuration(
         self,
@@ -317,7 +313,7 @@ class Settings(YamlSettingsBase):
             redirect.scheme not in {"http", "https"}
             or not redirect.netloc
             or redirect.path != "/auth/callback"
-            or (is_production and redirect.scheme != "https")
+            or (is_production and self.ENFORCE_SECURE_CONNECTION and redirect.scheme != "https")
         ):
             raise ValueError("OIDC_REDIRECT_URI doit pointer vers /auth/callback")
 

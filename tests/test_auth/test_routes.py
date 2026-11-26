@@ -321,7 +321,7 @@ def test_expired_login_lock_resets_before_counting_next_failure(app: Flask) -> N
     )
 
     assert response.status_code == 401
-    updated_state = session.get(UserLoginState, user.id)
+    updated_state = app.extensions["database_config"].session().get(UserLoginState, user.id)
     assert updated_state is not None
     assert updated_state.failed_attempts == 1
     assert not updated_state.locked

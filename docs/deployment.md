@@ -63,7 +63,11 @@ For an accessible internal account, users can change their own password with `tt
 
 A Flask secret mounted at `secrets/flask_secret_key` takes precedence. If it is absent, the container entrypoint generates a random key at `/data/flask_secret_key`, with owner-only permissions. The key persists across restarts through the `/data` volume. If a mounted secret exists but cannot be read, startup fails. An admin password secret is not required by the base configuration; do not put secret values in `.env`.
 
-For production, explicitly set the environment, disable debug mode, and enable HTTPS enforcement and `Secure` cookies. Setting only `FLASK_ENV=production` is not enough: startup is rejected while `DEBUG` remains enabled. For example, the override variables are `TTL_LAMA_FLASK_ENV=production`, `TTL_LAMA_DEBUG=false`, `TTL_LAMA_ENFORCE_SECURE_CONNECTION=true`, and `TTL_LAMA_SESSION_COOKIE_SECURE=true`. In production, a warning is logged while the administrator still uses the initial password. Authenticated API endpoint `GET /auth/security-status` exposes only the boolean indicator `default_admin_password_in_use`.
+For production, explicitly set the environment and disable debug mode: startup is rejected while `DEBUG` remains enabled. HTTPS and `Secure` cookies are recommended: configure a TLS proxy and set `TTL_LAMA_FLASK_ENV=production`, `TTL_LAMA_DEBUG=false`, `TTL_LAMA_ENFORCE_SECURE_CONNECTION=true`, and `TTL_LAMA_SESSION_COOKIE_SECURE=true`. The application does not terminate TLS or redirect HTTP requests to HTTPS itself.
+
+HTTP is also available in production on a trusted, isolated network by setting `security.enforce_secure_connection: false` and `security.session_cookie_secure: false`. Cookies are then sent without the `Secure` attribute and `SameSite=None` is forbidden. Network isolation is the operator's responsibility: HTTP exposes credentials and sessions to anyone observing the network. With OIDC, the provider must still use HTTPS and must allow the HTTP callback URL. Some browser features, including Web Crypto, require a secure context and may not work over HTTP outside localhost.
+
+In production, a warning is logged while the administrator still uses the initial password. Authenticated API endpoint `GET /auth/security-status` exposes only the boolean indicator `default_admin_password_in_use`.
 
 ### Configuration Errors and Secrets
 
@@ -223,7 +227,7 @@ database:
   password_file: /run/secrets/database_password
 ```
 
-Mounted secret contents are read at startup. In production, the Flask key must contain at least 32 characters and cookies must be marked `Secure`. Authentication is always required. Adapt the interfaces in `backend_config.yml` to your deployment's networks and durations.
+Mounted secret contents are read at startup. The Flask key must contain at least 32 characters and cookies are marked `Secure` when HTTPS is enabled. Authentication is always required. Adapt the interfaces in `backend_config.yml` to your deployment's networks and durations.
 
 ## Container Paths
 

@@ -516,11 +516,11 @@ def _collect_security(environment: str) -> dict[str, Any]:
     insecure_production_confirmed = False
     if environment == "production" and not enforce_secure:
         print(
-            "WARNING: The application requires HTTPS in production and will reject this "
-            "configuration at startup."
+            "WARNING: HTTP exposes credentials and session cookies to network observers. "
+            "Use it only on a trusted, isolated network."
         )
         insecure_production_confirmed = ask_bool(
-            "Generate the configuration anyway, knowing the application will not start?",
+            "Generate a production configuration with HTTP?",
             False,
         )
         if not insecure_production_confirmed:
@@ -726,18 +726,11 @@ def application_configuration(answers: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def validate_application(
-    configuration: dict[str, Any],
-    allow_insecure_production: bool = False,
-) -> None:
+def validate_application(configuration: dict[str, Any]) -> None:
     """Validate the application configuration.
 
     :param configuration: The application configuration to validate.
     :type configuration: dict[str, Any]
-    :param allow_insecure_production: Whether the user explicitly accepted the known production
-    HTTPS startup rejection.
-    :type allow_insecure_production: bool
-
     :raises ValueError: If the configuration is invalid.
     """
     candidate = copy.deepcopy(configuration)
@@ -747,13 +740,6 @@ def validate_application(
         candidate["auth"]["oidc"]["client_secret"] = "validation-only-secret"
     if candidate["database"]["type"] != "sqlite":
         candidate["database"]["password"] = "validation-only-secret"
-    if (
-        allow_insecure_production
-        and candidate["app"]["environment"] == "production"
-        and not candidate["security"]["enforce_secure_connection"]
-    ):
-        candidate["security"]["enforce_secure_connection"] = True
-        candidate["security"]["session_cookie_secure"] = True
     errors = validate_configuration(candidate)
     if errors:
         raise ValueError(
@@ -1202,10 +1188,7 @@ def main() -> int:
             print(f"Output directory already exists; using a unique path: {output_dir}")
         answers = collect_answers()
         configuration = application_configuration(answers)
-        validate_application(
-            configuration,
-            allow_insecure_production=answers["insecure_production_confirmed"],
-        )
+        validate_application(configuration)
         validate_backend(answers["backend_settings"], answers["backend_type"])
         validate_ssh(answers)
         generated_output_dir = output_files(answers, configuration, output_dir)
@@ -1229,8 +1212,8 @@ def main() -> int:
     print("  Complete the required variables in .env.")
     if answers["insecure_production_confirmed"]:
         print(
-            "  WARNING: The application will reject this production configuration at startup "
-            "because HTTPS is disabled."
+            "  WARNING: HTTP exposes credentials and session cookies to network observers; "
+            "use only on a trusted, isolated network."
         )
     print(
         f"  Add the verified VPN host key to "
